@@ -102,6 +102,7 @@ function convertNeo4jInt(value) {
 //   }
 // });
 
+// Fetch all train routes
 app.get('/all-train-routes', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
@@ -109,18 +110,18 @@ app.get('/all-train-routes', async (req, res) => {
 
   try {
     const query = `
-      MATCH (train:Train)-[r:TRAVELS_TO]->(departureStation:Station)
-      ${trainType ? 'WHERE train.type = $trainType' : ''}
-      OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: train.TrainID}]->(arrivalStation:Station)
-      RETURN train.TrainID AS TrainID, 
-             train.type AS Type, 
-             departureStation.name AS DepartureStation, 
-             r.departureTime AS DepartureTime, 
-             arrivalStation.name AS ArrivalStation, 
-             n.arrivalTime AS ArrivalTime, 
-             r.daysElapsed AS DaysElapsed
-      ORDER BY TrainID, DaysElapsed, DepartureTime
-      LIMIT 50
+MATCH (train:Train)-[r:TRAVELS_TO]->(departureStation:Station)
+${trainType ? 'WHERE train.type = $trainType' : ''}
+OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: train.TrainID}]->(arrivalStation:Station)
+RETURN train.TrainID AS TrainID, 
+       train.type AS Type, 
+       CASE WHEN departureStation.realName IS NOT NULL THEN departureStation.realName ELSE departureStation.name END AS DepartureStation, 
+       r.departureTime AS DepartureTime, 
+       CASE WHEN arrivalStation.realName IS NOT NULL THEN arrivalStation.realName ELSE arrivalStation.name END AS ArrivalStation, 
+       n.arrivalTime AS ArrivalTime, 
+       r.daysElapsed AS DaysElapsed
+ORDER BY TrainID, DaysElapsed, DepartureTime
+LIMIT 50
     `;
 
     const result = await session.run(query, { trainType });
@@ -157,9 +158,9 @@ app.get('/train-route/:trainID', async (req, res) => {
        OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: $trainID}]->(arrivalStation:Station)
        RETURN train.TrainID AS TrainID, 
               train.type AS Type, 
-              departureStation.name AS DepartureStation, 
+              CASE WHEN departureStation.realName IS NOT NULL THEN departureStation.realName ELSE departureStation.name END AS DepartureStation, 
               r.departureTime AS DepartureTime, 
-              arrivalStation.name AS ArrivalStation, 
+              CASE WHEN arrivalStation.realName IS NOT NULL THEN arrivalStation.realName ELSE arrivalStation.name END AS ArrivalStation, 
               n.arrivalTime AS ArrivalTime, 
               r.daysElapsed AS DaysElapsed
        ORDER BY DaysElapsed, DepartureTime`,
@@ -193,42 +194,43 @@ app.get('/train-summary', async (req, res) => {
 
   try {
     const query = `
-      MATCH (train:Train)-[r:TRAVELS_TO]->(station:Station)
-      ${type ? 'WHERE train.type = $type' : ''}  // Apply type filter if provided
-      WITH train, r, station
-      ORDER BY r.daysElapsed ASC, r.departureTime ASC
+MATCH (train:Train)-[r:TRAVELS_TO]->(station:Station)
+${type ? 'WHERE train.type = $type' : ''}  // Apply type filter if provided
+WITH train, r, station
+ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
-      // Collect stations, times, and days elapsed
-      WITH train, 
-           COLLECT(station.name) AS stations, 
-           COLLECT(r.departureTime) AS departureTimes, 
-           COLLECT(r.arrivalTime) AS arrivalTimes, 
-           COLLECT(r.daysElapsed) AS daysElapsedList
+// Collect stations, times, and days elapsed
+WITH train, 
+     COLLECT(station.name) AS stations, 
+     COLLECT(station.realName) AS stationRealNames,  // Collect real names
+     COLLECT(r.departureTime) AS departureTimes, 
+     COLLECT(r.arrivalTime) AS arrivalTimes, 
+     COLLECT(r.daysElapsed) AS daysElapsedList
 
-      // Calculate the total travel time considering DaysElapsed and base datetime
-      WITH train, stations, departureTimes, arrivalTimes, daysElapsedList,
-           REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
-               totalTime + 
-               duration.between(
-                   datetime({year: 2024, month: 1, day: 1, time: departureTimes[i]}) + duration({days: daysElapsedList[i]}), 
-                   datetime({year: 2024, month: 1, day: 1, time: arrivalTimes[i]}) + duration({days: daysElapsedList[i]})
-               ).minutes
-           ) AS TotalTravelTimeInMinutes
+// Calculate the total travel time considering DaysElapsed and base datetime
+WITH train, stations, stationRealNames, departureTimes, arrivalTimes, daysElapsedList,
+     REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
+         totalTime + 
+         duration.between(
+             datetime({year: 2024, month: 1, day: 1, time: departureTimes[i]}) + duration({days: daysElapsedList[i]}), 
+             datetime({year: 2024, month: 1, day: 1, time: arrivalTimes[i]}) + duration({days: daysElapsedList[i]})
+         ).minutes
+     ) AS TotalTravelTimeInMinutes
 
-      // Find the next station connected to the last station via the NEXT_STATION relationship
-      OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainID: train.TrainID}]->(nextStation:Station)
+// Find the next station connected to the last station via the NEXT_STATION relationship
+OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainID: train.TrainID}]->(nextStation:Station)
 
-      // Return the train's details
-      RETURN 
-          train.TrainID AS Train, 
-          train.type AS Type,
-          stations[0] AS FirstStation, 
-          departureTimes[0] AS FirstDepartureTime, 
-          nextStation.name AS FinalStation,
-          arrivalTimes[-1] AS LastArrivalTime, 
-          TotalTravelTimeInMinutes
-      ORDER BY Train ASC
-      LIMIT 50
+// Return the train's details
+RETURN 
+    train.TrainID AS Train, 
+    train.type AS Type,
+    CASE WHEN stationRealNames[0] IS NOT NULL THEN stationRealNames[0] ELSE stations[0] END AS FirstStation,
+    departureTimes[0] AS FirstDepartureTime, 
+    CASE WHEN nextStation.realName IS NOT NULL THEN nextStation.realName ELSE nextStation.name END AS FinalStation,
+    arrivalTimes[-1] AS LastArrivalTime, 
+    TotalTravelTimeInMinutes
+ORDER BY Train ASC
+LIMIT 50
     `;
 
     const result = await session.run(query, { type });
@@ -258,10 +260,12 @@ app.get('/most-connected-stations', async (req, res) => {
 
   try {
     const result = await session.run(`
-      MATCH (s:Station)-[:NEXT_STATION]->(s2:Station)
-      RETURN s.name AS Station, COUNT(*) AS Connections
-      ORDER BY Connections DESC
-      LIMIT 10
+MATCH (s:Station)-[:NEXT_STATION]->(s2:Station)
+RETURN 
+    CASE WHEN s.realName IS NOT NULL THEN s.realName ELSE s.name END AS Station,
+    COUNT(*) AS Connections
+ORDER BY Connections DESC
+LIMIT 10
     `);
 
     const formattedData = result.records.map(record => ({
@@ -286,13 +290,14 @@ app.get('/peak-travel-times', async (req, res) => {
 
   try {
     const result = await session.run(`
-      MATCH (s:Station)<-[r:TRAVELS_TO]-(train:Train)
-      RETURN s.name AS Station, 
-             r.departureTime.hour AS Starting_From, 
-             r.departureTime.hour + 1 AS Until, 
-             COUNT(*) AS NumberOfDepartures
-      ORDER BY NumberOfDepartures DESC
-      LIMIT 10
+MATCH (s:Station)<-[r:TRAVELS_TO]-(train:Train)
+RETURN 
+    CASE WHEN s.realName IS NOT NULL THEN s.realName ELSE s.name END AS Station, 
+    r.departureTime.hour AS Starting_From, 
+    r.departureTime.hour + 1 AS Until, 
+    COUNT(*) AS NumberOfDepartures
+ORDER BY NumberOfDepartures DESC
+LIMIT 10
     `);
 
     const formattedData = result.records.map(record => ({
@@ -377,13 +382,21 @@ app.get('/graph-data', async (req, res) => {
 
   try {
     const result = await session.run(`
-      MATCH (s1:Station)-[r:CONNECTED]->(s2:Station)
-      OPTIONAL MATCH (train:Train)-[t:TRAVELS_TO]->(s1)
-      RETURN 
-        ID(s1) AS sourceId, s1.name AS sourceName, labels(s1) AS sourceLabels,
-        ID(s2) AS targetId, s2.name AS targetName, labels(s2) AS targetLabels,
-        r.distance AS distance, 
-        ID(train) AS trainId, train.TrainID AS trainName, train.type AS trainType
+MATCH (s1:Station)-[r:CONNECTED]->(s2:Station)
+OPTIONAL MATCH (train:Train)-[t:TRAVELS_TO]->(s1)
+RETURN 
+    ID(s1) AS sourceId, 
+    CASE WHEN s1.realName IS NOT NULL THEN s1.realName ELSE s1.name END AS sourceName,  
+    labels(s1) AS sourceLabels,
+    
+    ID(s2) AS targetId, 
+    CASE WHEN s2.realName IS NOT NULL THEN s2.realName ELSE s2.name END AS targetName,  
+    labels(s2) AS targetLabels,
+    
+    r.distance AS distance, 
+    ID(train) AS trainId, 
+    train.TrainID AS trainName, 
+    train.type AS trainType
     `);
 
     const nodes = {};
@@ -459,12 +472,18 @@ app.get('/train-graph/:trainID', async (req, res) => {
 
   try {
     const result = await session.run(`
-      MATCH (train:Train {TrainID: $trainID})-[r:TRAVELS_TO]->(station:Station)
-      OPTIONAL MATCH (station)-[n:NEXT_STATION {TrainID: $trainID}]->(nextStation:Station)
-      RETURN 
-        ID(train) AS trainId, train.TrainID AS trainName, train.type AS trainType,
-        ID(station) AS stationId, station.name AS stationName,
-        ID(nextStation) AS nextStationId, nextStation.name AS nextStationName
+MATCH (train:Train {TrainID: $trainID})-[r:TRAVELS_TO]->(station:Station)
+OPTIONAL MATCH (station)-[n:NEXT_STATION {TrainID: $trainID}]->(nextStation:Station)
+RETURN 
+    ID(train) AS trainId, 
+    train.TrainID AS trainName, 
+    train.type AS trainType,
+    
+    ID(station) AS stationId, 
+    CASE WHEN station.realName IS NOT NULL THEN station.realName ELSE station.name END AS stationName, 
+    
+    ID(nextStation) AS nextStationId, 
+    CASE WHEN nextStation.realName IS NOT NULL THEN nextStation.realName ELSE nextStation.name END AS nextStationName 
     `, { trainID });
 
     const nodes = {};
