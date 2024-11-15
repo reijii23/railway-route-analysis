@@ -115,9 +115,9 @@ ${trainType ? 'WHERE train.type = $trainType' : ''}
 OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: train.TrainID}]->(arrivalStation:Station)
 RETURN train.TrainID AS TrainID, 
        train.type AS Type, 
-       CASE WHEN departureStation.realName IS NOT NULL THEN departureStation.realName ELSE departureStation.name END AS DepartureStation, 
+       departureStation.realName AS DepartureStation, 
        r.departureTime AS DepartureTime, 
-       CASE WHEN arrivalStation.realName IS NOT NULL THEN arrivalStation.realName ELSE arrivalStation.name END AS ArrivalStation, 
+       arrivalStation.realName AS ArrivalStation, 
        n.arrivalTime AS ArrivalTime, 
        r.daysElapsed AS DaysElapsed
 ORDER BY TrainID, DaysElapsed, DepartureTime
@@ -158,9 +158,9 @@ app.get('/train-route/:trainID', async (req, res) => {
        OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: $trainID}]->(arrivalStation:Station)
        RETURN train.TrainID AS TrainID, 
               train.type AS Type, 
-              CASE WHEN departureStation.realName IS NOT NULL THEN departureStation.realName ELSE departureStation.name END AS DepartureStation, 
+              departureStation.realName AS DepartureStation, 
               r.departureTime AS DepartureTime, 
-              CASE WHEN arrivalStation.realName IS NOT NULL THEN arrivalStation.realName ELSE arrivalStation.name END AS ArrivalStation, 
+              arrivalStation.realName AS ArrivalStation, 
               n.arrivalTime AS ArrivalTime, 
               r.daysElapsed AS DaysElapsed
        ORDER BY DaysElapsed, DepartureTime`,
@@ -224,9 +224,9 @@ OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainI
 RETURN 
     train.TrainID AS Train, 
     train.type AS Type,
-    CASE WHEN stationRealNames[0] IS NOT NULL THEN stationRealNames[0] ELSE stations[0] END AS FirstStation,
+    stationRealNames[0] END AS FirstStation,
     departureTimes[0] AS FirstDepartureTime, 
-    CASE WHEN nextStation.realName IS NOT NULL THEN nextStation.realName ELSE nextStation.name END AS FinalStation,
+    nextStation.realName AS FinalStation,
     arrivalTimes[-1] AS LastArrivalTime, 
     TotalTravelTimeInMinutes
 ORDER BY Train ASC
@@ -262,7 +262,7 @@ app.get('/most-connected-stations', async (req, res) => {
     const result = await session.run(`
 MATCH (s:Station)-[:NEXT_STATION]->(s2:Station)
 RETURN 
-    CASE WHEN s.realName IS NOT NULL THEN s.realName ELSE s.name END AS Station,
+    s.realName AS Station,
     COUNT(*) AS Connections
 ORDER BY Connections DESC
 LIMIT 10
@@ -292,7 +292,7 @@ app.get('/peak-travel-times', async (req, res) => {
     const result = await session.run(`
 MATCH (s:Station)<-[r:TRAVELS_TO]-(train:Train)
 RETURN 
-    CASE WHEN s.realName IS NOT NULL THEN s.realName ELSE s.name END AS Station, 
+    s.realName AS Station, 
     r.departureTime.hour AS Starting_From, 
     r.departureTime.hour + 1 AS Until, 
     COUNT(*) AS NumberOfDepartures
@@ -329,7 +329,7 @@ app.get('/total-travel-time', async (req, res) => {
       ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
       WITH train.TrainID AS TrainID, 
-           COLLECT(station.name) AS stations, 
+           COLLECT(station.realName) AS stations, 
            COLLECT(r.departureTime) AS departureTimes, 
            COLLECT(r.arrivalTime) AS arrivalTimes, 
            COLLECT(r.daysElapsed) AS daysElapsedList
@@ -343,13 +343,13 @@ app.get('/total-travel-time', async (req, res) => {
              ).minutes
            ) AS TotalTravelTimeInMinutes
 
-      OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainID: TrainID}]->(nextStation:Station)
+      OPTIONAL MATCH (lastStation:Station {realName: stations[-1]})-[:NEXT_STATION {TrainID: TrainID}]->(nextStation:Station)
 
       RETURN 
         TrainID AS Train, 
         stations[0] AS FirstStation, 
         departureTimes[0] AS FirstDepartureTime, 
-        nextStation.name AS FinalStation, 
+        nextStation.realName AS FinalStation, 
         arrivalTimes[-1] AS LastArrivalTime, 
         TotalTravelTimeInMinutes
       ORDER BY TotalTravelTimeInMinutes DESC
@@ -386,11 +386,11 @@ MATCH (s1:Station)-[r:CONNECTED]->(s2:Station)
 OPTIONAL MATCH (train:Train)-[t:TRAVELS_TO]->(s1)
 RETURN 
     ID(s1) AS sourceId, 
-    CASE WHEN s1.realName IS NOT NULL THEN s1.realName ELSE s1.name END AS sourceName,  
+    s1.realName AS sourceName,  
     labels(s1) AS sourceLabels,
     
     ID(s2) AS targetId, 
-    CASE WHEN s2.realName IS NOT NULL THEN s2.realName ELSE s2.name END AS targetName,  
+    s2.realName AS targetName,  
     labels(s2) AS targetLabels,
     
     r.distance AS distance, 
@@ -480,10 +480,10 @@ RETURN
     train.type AS trainType,
     
     ID(station) AS stationId, 
-    CASE WHEN station.realName IS NOT NULL THEN station.realName ELSE station.name END AS stationName, 
+    station.realName AS stationName, 
     
     ID(nextStation) AS nextStationId, 
-    CASE WHEN nextStation.realName IS NOT NULL THEN nextStation.realName ELSE nextStation.name END AS nextStationName 
+    nextStation.realName AS nextStationName 
     `, { trainID });
 
     const nodes = {};
