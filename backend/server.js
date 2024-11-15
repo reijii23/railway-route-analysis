@@ -224,7 +224,7 @@ OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainI
 RETURN 
     train.TrainID AS Train, 
     train.type AS Type,
-    stationRealNames[0] END AS FirstStation,
+    stationRealNames[0] AS FirstStation,
     departureTimes[0] AS FirstDepartureTime, 
     nextStation.realName AS FinalStation,
     arrivalTimes[-1] AS LastArrivalTime, 
