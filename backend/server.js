@@ -153,28 +153,41 @@ app.get('/train-route/:trainID', async (req, res) => {
   const { trainID } = req.params;
 
   try {
-    const result = await session.run(
-      `MATCH (train:Train {TrainID: $trainID})-[r:TRAVELS_TO]->(departureStation:Station)
-       OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: $trainID}]->(arrivalStation:Station)
-       RETURN train.TrainID AS TrainID, 
-              train.type AS Type, 
-              departureStation.realName AS DepartureStation, 
-              r.departureTime AS DepartureTime, 
-              arrivalStation.realName AS ArrivalStation, 
-              n.arrivalTime AS ArrivalTime, 
-              r.daysElapsed AS DaysElapsed
-       ORDER BY DaysElapsed, DepartureTime`,
-      { trainID }
-    );
+    const query = `
+MATCH (train:Train {TrainID: $trainID})-[r:TRAVELS_TO]->(departureStation:Station)
+OPTIONAL MATCH (departureStation)-[:LOCATED_IN]->(departureCity:City)-[:PART_OF]->(departureProvince:Province)
+OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: $trainID}]->(arrivalStation:Station)
+OPTIONAL MATCH (arrivalStation)-[:LOCATED_IN]->(arrivalCity:City)-[:PART_OF]->(arrivalProvince:Province)
+
+RETURN 
+  train.TrainID AS TrainID,
+  train.type AS Type,
+  departureStation.realName AS DepartureStation,
+  departureCity.name AS DepartureCity,
+  departureProvince.name AS DepartureProvince,
+  r.departureTime AS DepartureTime,
+  arrivalStation.realName AS ArrivalStation,
+  arrivalCity.name AS ArrivalCity,
+  arrivalProvince.name AS ArrivalProvince,
+  r.arrivalTime AS ArrivalTime,
+  r.daysElapsed AS DaysElapsed
+ORDER BY r.daysElapsed ASC, r.departureTime ASC
+    `;
+
+    const result = await session.run(query, { trainID });
 
     const formattedData = result.records.map(record => ({
       TrainID: record.get('TrainID'),
       Type: record.get('Type') || 'Unknown',
       DepartureStation: record.get('DepartureStation'),
-      DepartureTime: formatTime(record.get('DepartureTime')), // Format the time
+      DepartureCity: record.get('DepartureCity') || 'N/A',
+      DepartureProvince: record.get('DepartureProvince') || 'N/A',
+      DepartureTime: formatTime(record.get('DepartureTime')),
       ArrivalStation: record.get('ArrivalStation'),
-      ArrivalTime: formatTime(record.get('ArrivalTime')), // Format the time
-      DaysElapsed: record.get('DaysElapsed')
+      ArrivalCity: record.get('ArrivalCity') || 'N/A',
+      ArrivalProvince: record.get('ArrivalProvince') || 'N/A',
+      ArrivalTime: formatTime(record.get('ArrivalTime')),
+      DaysElapsed: record.get('DaysElapsed'),
     }));
 
     res.json(formattedData);
@@ -190,25 +203,33 @@ app.get('/train-route/:trainID', async (req, res) => {
 
 app.get('/train-summary', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
-  const { type } = req.query;  // Get the type from query parameters
+  const { type } = req.query; // Get the train type from query parameters
 
   try {
     const query = `
 MATCH (train:Train)-[r:TRAVELS_TO]->(station:Station)
-${type ? 'WHERE train.type = $type' : ''}  // Apply type filter if provided
+${type ? 'WHERE train.type = $type' : ''} // Apply type filter if provided
 WITH train, r, station
 ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
-// Collect stations, times, and days elapsed
+// Collect stations, times, and additional details
 WITH train, 
-     COLLECT(station.name) AS stations, 
-     COLLECT(station.realName) AS stationRealNames,  // Collect real names
+     COLLECT(station.realName) AS stationRealNames, 
+     COLLECT(station) AS stationNodes, // Collect full station nodes for city/province
      COLLECT(r.departureTime) AS departureTimes, 
      COLLECT(r.arrivalTime) AS arrivalTimes, 
      COLLECT(r.daysElapsed) AS daysElapsedList
 
-// Calculate the total travel time considering DaysElapsed and base datetime
-WITH train, stations, stationRealNames, departureTimes, arrivalTimes, daysElapsedList,
+// Retrieve city and province details for first and last stations
+WITH train, stationRealNames, stationNodes, departureTimes, arrivalTimes, daysElapsedList,
+     stationNodes[0] AS firstStationNode,
+     stationNodes[-1] AS lastStationNode
+OPTIONAL MATCH (firstStationNode)-[:LOCATED_IN]->(firstCity:City)-[:PART_OF]->(firstProvince:Province)
+OPTIONAL MATCH (lastStationNode)-[:LOCATED_IN]->(lastCity:City)-[:PART_OF]->(lastProvince:Province)
+
+// Calculate total travel time
+WITH train, stationRealNames, departureTimes, arrivalTimes, daysElapsedList, 
+     firstCity, firstProvince, lastCity, lastProvince,
      REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
          totalTime + 
          duration.between(
@@ -217,35 +238,37 @@ WITH train, stations, stationRealNames, departureTimes, arrivalTimes, daysElapse
          ).minutes
      ) AS TotalTravelTimeInMinutes
 
-// Find the next station connected to the last station via the NEXT_STATION relationship
-OPTIONAL MATCH (lastStation:Station {name: stations[-1]})-[:NEXT_STATION {TrainID: train.TrainID}]->(nextStation:Station)
-
-// Return the train's details
 RETURN 
-    train.TrainID AS Train, 
-    train.type AS Type,
-    stationRealNames[0] AS FirstStation,
-    departureTimes[0] AS FirstDepartureTime, 
-    nextStation.realName AS FinalStation,
-    arrivalTimes[-1] AS LastArrivalTime, 
-    TotalTravelTimeInMinutes
-ORDER BY Train ASC
+  train.TrainID AS TrainID,
+  train.type AS Type,
+  stationRealNames[0] AS FirstStation,
+  firstCity.name AS FirstCity,
+  firstProvince.name AS FirstProvince,
+  stationRealNames[-1] AS LastStation,
+  lastCity.name AS LastCity,
+  lastProvince.name AS LastProvince,
+  TotalTravelTimeInMinutes
+ORDER BY TrainID ASC
 LIMIT 50
     `;
 
     const result = await session.run(query, { type });
 
     const summaryData = result.records.map(record => ({
-      TrainID: record.get('Train'),
+      TrainID: record.get('TrainID'),
       Type: record.get('Type') || 'Unknown',
       FirstStation: record.get('FirstStation'),
-      FinalStation: record.get('FinalStation'),
-      TotalTravelTimeInMinutes: record.get('TotalTravelTimeInMinutes')
+      FirstCity: record.get('FirstCity') || 'N/A',
+      FirstProvince: record.get('FirstProvince') || 'N/A',
+      LastStation: record.get('LastStation'),
+      LastCity: record.get('LastCity') || 'N/A',
+      LastProvince: record.get('LastProvince') || 'N/A',
+      TotalTravelTimeInMinutes: record.get('TotalTravelTimeInMinutes'),
     }));
 
     res.json(summaryData);
   } catch (error) {
-    console.error('Error fetching train summary:', error);
+    console.error('Error querying Neo4j:', error);
     res.status(500).send('Internal server error');
   } finally {
     await session.close();
