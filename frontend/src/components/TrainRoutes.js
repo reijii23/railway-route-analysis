@@ -347,7 +347,11 @@ function TrainRoutes() {
               <th>Train ID</th>
               <th>Type</th>
               <th>First Station</th>
+              <th>First City</th>
+              <th>First Province</th>
               <th>Last Station</th>
+              <th>Last City</th>
+              <th>Last Province</th>
             </tr>
           </thead>
           <tbody>
@@ -356,7 +360,11 @@ function TrainRoutes() {
                 <td>{row.TrainID}</td>
                 <td>{row.Type}</td>
                 <td>{row.FirstStation}</td>
-                <td>{row.FinalStation}</td>
+                <td>{row.FirstCity}</td>
+                <td>{row.FirstProvince}</td>
+                <td>{row.LastStation}</td>
+                <td>{row.LastCity}</td>
+                <td>{row.LastProvince}</td>
               </tr>
             ))}
           </tbody>
@@ -369,8 +377,12 @@ function TrainRoutes() {
               <th>Train ID</th>
               <th>Type</th>
               <th>Departure Station</th>
+              <th>Departure City</th>
+              <th>Departure Province</th>
               <th>Departure Time</th>
               <th>Arrival Station</th>
+              <th>Arrival City</th>
+              <th>Arrival Province</th>
               <th>Arrival Time</th>
               <th>Days Elapsed</th>
             </tr>
@@ -381,8 +393,12 @@ function TrainRoutes() {
                 <td>{row.TrainID}</td>
                 <td>{row.Type}</td>
                 <td>{row.DepartureStation}</td>
+                <td>{row.DepartureCity}</td>
+                <td>{row.DepartureProvince}</td>
                 <td>{row.DepartureTime}</td>
                 <td>{row.ArrivalStation}</td>
+                <td>{row.ArrivalCity}</td>
+                <td>{row.ArrivalProvince}</td>
                 <td>{row.ArrivalTime}</td>
                 <td>{convertNeo4jInt(row.DaysElapsed)}</td>
               </tr>
