@@ -212,24 +212,17 @@ ${type ? 'WHERE train.type = $type' : ''} // Apply type filter if provided
 WITH train, r, station
 ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
-// Collect stations, times, and additional details
+// Collect stations, times, and days elapsed
 WITH train, 
-     COLLECT(station.realName) AS stationRealNames, 
-     COLLECT(station) AS stationNodes, // Collect full station nodes for city/province
+     COLLECT(station.name) AS stations, 
+     COLLECT(station.realName) AS stationRealNames,  // Collect real names
+     COLLECT(station) AS stationNodes,               // Collect station nodes
      COLLECT(r.departureTime) AS departureTimes, 
      COLLECT(r.arrivalTime) AS arrivalTimes, 
      COLLECT(r.daysElapsed) AS daysElapsedList
 
-// Retrieve city and province details for first and last stations
-WITH train, stationRealNames, stationNodes, departureTimes, arrivalTimes, daysElapsedList,
-     stationNodes[0] AS firstStationNode,
-     stationNodes[-1] AS lastStationNode
-OPTIONAL MATCH (firstStationNode)-[:LOCATED_IN]->(firstCity:City)-[:PART_OF]->(firstProvince:Province)
-OPTIONAL MATCH (lastStationNode)-[:LOCATED_IN]->(lastCity:City)-[:PART_OF]->(lastProvince:Province)
-
-// Calculate total travel time
-WITH train, stationRealNames, departureTimes, arrivalTimes, daysElapsedList, 
-     firstCity, firstProvince, lastCity, lastProvince,
+// Calculate the total travel time considering DaysElapsed and base datetime
+WITH train, stations, stationRealNames, stationNodes, departureTimes, arrivalTimes, daysElapsedList,
      REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
          totalTime + 
          duration.between(
@@ -238,16 +231,33 @@ WITH train, stationRealNames, departureTimes, arrivalTimes, daysElapsedList,
          ).minutes
      ) AS TotalTravelTimeInMinutes
 
+// Get the first and last station nodes
+WITH train, stationRealNames, stationNodes, departureTimes, arrivalTimes, TotalTravelTimeInMinutes,
+     stationNodes[0] AS firstStationNode,
+     stationNodes[-1] AS lastStationNode,
+     departureTimes[0] AS FirstDepartureTime,
+     arrivalTimes[-1] AS LastArrivalTime
+
+// Find the next station connected to the last station via the NEXT_STATION relationship
+OPTIONAL MATCH (lastStationNode)-[:NEXT_STATION {TrainID: train.TrainID}]->(nextStation:Station)
+
+// Optional matches for cities and provinces
+OPTIONAL MATCH (firstStationNode)-[:LOCATED_IN]->(firstCity:City)-[:PART_OF]->(firstProvince:Province)
+OPTIONAL MATCH (nextStation)-[:LOCATED_IN]->(lastCity:City)-[:PART_OF]->(lastProvince:Province)
+
+// Return the train's details
 RETURN 
-  train.TrainID AS TrainID,
-  train.type AS Type,
-  stationRealNames[0] AS FirstStation,
-  firstCity.name AS FirstCity,
-  firstProvince.name AS FirstProvince,
-  stationRealNames[-1] AS LastStation,
-  lastCity.name AS LastCity,
-  lastProvince.name AS LastProvince,
-  TotalTravelTimeInMinutes
+    train.TrainID AS TrainID, 
+    train.type AS Type,
+    stationRealNames[0] AS FirstStation,
+    firstCity.name AS FirstCity,
+    firstProvince.name AS FirstProvince,
+    FirstDepartureTime, 
+    nextStation.realName AS LastStation,
+    lastCity.name AS LastCity,
+    lastProvince.name AS LastProvince,
+    LastArrivalTime, 
+    TotalTravelTimeInMinutes
 ORDER BY TrainID ASC
 LIMIT 50
     `;
