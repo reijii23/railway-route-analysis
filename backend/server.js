@@ -409,7 +409,7 @@ app.get('/total-travel-time', async (req, res) => {
 
 
 
-// Route to fetch graph data (stations, trains, and their relationships)
+// Route to fetch graph data (stations, trains, and their relationships) #UNUSED
 app.get('/graph-data', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
@@ -553,6 +553,56 @@ RETURN
     await session.close();
   }
 });
+
+
+// Province Graph Route
+app.get('/province-graph', async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+
+  const { provinceName } = req.query; // Accept province name as a query parameter
+
+  try {
+    const query = `
+      MATCH (province:Province {name: $provinceName})<-[:PART_OF]-(city:City)<-[:LOCATED_IN]-(station1:Station)
+      MATCH (station1)-[r:CONNECTED]-(station2:Station)
+      OPTIONAL MATCH (station1)<-[:TRAVELS_TO]-(train:Train)
+      RETURN
+        province.name AS Province,
+        city.name AS City,
+        station1.realName AS Station1Name,
+        station1.name AS Station1Code,
+        station2.realName AS Station2Name,
+        station2.name AS Station2Code,
+        r.distance AS Distance,
+        train.TrainID AS TrainID,
+        train.type AS TrainType
+      ORDER BY City, Station1Name, TrainID
+    `;
+
+    const result = await session.run(query, { provinceName });
+
+    // Format the response for the frontend
+    const formattedData = result.records.map(record => ({
+      Province: record.get('Province'),
+      City: record.get('City'),
+      Station1Name: record.get('Station1Name'),
+      Station1Code: record.get('Station1Code'),
+      Station2Name: record.get('Station2Name'),
+      Station2Code: record.get('Station2Code'),
+      Distance: record.get('Distance') || 'N/A',
+      TrainID: record.get('TrainID') || 'N/A',
+      TrainType: record.get('TrainType') || 'N/A',
+    }));
+
+    res.json(formattedData);
+  } catch (error) {
+    console.error('Error querying Neo4j:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    await session.close();
+  }
+});
+
 
 
 app.listen(port, () => {
