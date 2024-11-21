@@ -54,6 +54,9 @@ function NetworkInsights() {
         <button onClick={() => fetchData('total-travel-time')}>
           Total Travel Time
         </button>
+        <button onClick={() => fetchData('average-travel-time')}>
+          Average Travel Time
+        </button>
       </div>
       <div>{queryType && <h2>{queryType.replace(/-/g, ' ')}</h2>}</div>
       {renderTable()}

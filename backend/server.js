@@ -409,6 +409,42 @@ app.get('/total-travel-time', async (req, res) => {
 
 
 
+// Route 4: Average travel time between stations
+app.get('/average-travel-time', async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+
+  try {
+    const query = `
+      MATCH (s1:Station)-[next: NEXT_STATION]->(s2:Station)
+      MATCH (s1)-[conn:CONNECTED]-(s2) // Use CONNECTED to get the distance
+      RETURN 
+        s1.realName AS StartStation,
+        s2.realName AS EndStation,
+        conn.distance AS DistanceInKm,
+        AVG(abs(duration.between(next.departureTime, next.arrivalTime).minutes)) AS AvgTravelTimeInMinutes
+      ORDER BY AvgTravelTimeInMinutes DESC
+    `;
+
+    const result = await session.run(query);
+
+    const formattedData = result.records.map(record => ({
+      StartStation: record.get('StartStation'),
+      EndStation: record.get('EndStation'),
+      DistanceInKm: record.get('DistanceInKm') || 'N/A',
+      AvgTravelTimeInMinutes: record.get('AvgTravelTimeInMinutes').toFixed(2),
+    }));
+
+    res.json(formattedData);
+  } catch (error) {
+    console.error('Error querying Neo4j:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    await session.close();
+  }
+});
+
+
+
 // Route to fetch graph data (stations, trains, and their relationships) #UNUSED
 app.get('/graph-data', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
