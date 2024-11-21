@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
+// Helper function to safely convert Neo4j integers
+const convertNeo4jInt = (value) => {
+  if (typeof value === 'object' && value !== null && 'low' in value) {
+    return value.low; // Extract the "low" value for Neo4j integers
+  }
+  return value; // Return the original value if it's not a Neo4j integer
+};
+
 function NetworkInsights() {
   const [data, setData] = useState([]);
   const [queryType, setQueryType] = useState('');
@@ -32,7 +40,7 @@ function NetworkInsights() {
           {data.map((row, rowIndex) => (
             <tr key={rowIndex}>
               {headers.map((header, colIndex) => (
-                <td key={colIndex}>{row[header]}</td>
+                <td key={colIndex}>{convertNeo4jInt(row[header])}</td>
               ))}
             </tr>
           ))}
@@ -56,6 +64,9 @@ function NetworkInsights() {
         </button>
         <button onClick={() => fetchData('average-travel-time')}>
           Average Travel Time
+        </button>
+        <button onClick={() => fetchData('gross-ton-km')}>
+          Gross Ton/Kilometer (GTK)
         </button>
       </div>
       <div>{queryType && <h2>{queryType.replace(/-/g, ' ')}</h2>}</div>

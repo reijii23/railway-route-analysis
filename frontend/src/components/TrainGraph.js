@@ -171,26 +171,76 @@
 
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ForceGraph2D } from 'react-force-graph';
 import axios from 'axios';
-import { forceManyBody, forceCollide, forceLink } from 'd3-force'; // Correct import
 
 function TrainGraph() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
-  const [trainID, setTrainID] = useState('');
+  const [trainID, setTrainID] = useState(''); // User input
+  const [error, setError] = useState(null); // For handling errors
 
   const fetchTrainGraph = () => {
-    axios.get(`http://localhost:3001/train-graph/${trainID}`)
-      .then(response => setGraphData(response.data))
-      .catch(error => console.error('Error fetching train graph:', error));
+    if (!trainID.trim()) {
+      setError('Please enter a valid Train ID.');
+      return;
+    }
+
+    setError(null); // Clear any previous errors
+
+    axios
+      .get(`http://localhost:3001/train-graph/${trainID}`)
+      .then((response) => {
+        const { nodes, links } = buildCustomGraph(response.data);
+        setGraphData({ nodes, links });
+      })
+      .catch((error) => {
+        console.error('Error fetching train graph:', error);
+        setError('Failed to fetch train graph. Please try again.');
+      });
   };
 
-  // useEffect(() => {
-  //   if (trainID) {
-  //     fetchTrainGraph();
-  //   }
-  // }, [trainID]);
+  const buildCustomGraph = (data) => {
+    const { nodes: rawNodes, links: rawLinks } = data;
+
+    // Nodes and links for the new structure
+    const nodes = [];
+    const links = [];
+
+    // Find the train node and all stations
+    const trainNode = rawNodes.find((node) => node.labels.includes('Train'));
+    const stationNodes = rawNodes.filter((node) => node.labels.includes('Station'));
+
+    if (!trainNode || stationNodes.length === 0) {
+      setError('No valid train or stations found.');
+      return { nodes: [], links: [] };
+    }
+
+    // Add train node
+    nodes.push(trainNode);
+
+    // Add the first station and link it to the train node
+    const firstStation = stationNodes[0];
+    nodes.push(firstStation);
+    links.push({ source: trainNode.id, target: firstStation.id, relationship: 'TRAVELS_TO' });
+
+    // Sequentially add stations and connect them using NEXT_STATION
+    for (let i = 0; i < stationNodes.length - 1; i++) {
+      const currentStation = stationNodes[i];
+      const nextStation = stationNodes[i + 1];
+
+      if (!nodes.find((node) => node.id === currentStation.id)) {
+        nodes.push(currentStation);
+      }
+      if (!nodes.find((node) => node.id === nextStation.id)) {
+        nodes.push(nextStation);
+      }
+
+      links.push({ source: currentStation.id, target: nextStation.id, relationship: 'NEXT_STATION' });
+    }
+
+    return { nodes, links };
+  };
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -200,35 +250,48 @@ function TrainGraph() {
         value={trainID}
         onChange={(e) => setTrainID(e.target.value)}
         placeholder="Enter Train ID"
+        style={{ marginBottom: '10px', padding: '5px', width: '200px' }}
       />
-      <button onClick={fetchTrainGraph}>Fetch Train Route</button>
+      <button
+        onClick={fetchTrainGraph}
+        style={{ padding: '5px 10px', marginLeft: '10px' }}
+      >
+        Fetch Train Route
+      </button>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
 
       <ForceGraph2D
         graphData={graphData}
-        nodeLabel={node => `${node.name} (${node.labels.join(', ')})`}
-        linkLabel={link => link.relationship}
+        nodeLabel={(node) => `${node.name} (${node.labels.join(', ')})`}
+        linkLabel={(link) => link.relationship}
         linkDirectionalArrowLength={8}
         linkDirectionalArrowRelPos={1}
         linkWidth={2}
         width={window.innerWidth}
         height={window.innerHeight}
-        d3VelocityDecay={0.8} // Smooth simulation
-        d3ForceLayout={(forceGraph) => {
-          // Repulsive charge force: Stronger repulsion to spread out nodes
-          forceGraph.force('charge', forceManyBody().strength(-1000));
-
-          // Collision force: Prevent nodes from overlapping
-          forceGraph.force('collision', forceCollide(80)); // 50px collision radius
-
-          // Link distance: Spread connected nodes further apart
-          forceGraph.force('link', forceLink().distance(400).strength(0.5));
-        }}
         nodeCanvasObject={(node, ctx) => {
           const label = `${node.name} (${node.type || node.labels.join(', ')})`;
           const fontSize = 12;
+
           ctx.font = `${fontSize}px Sans-Serif`;
           ctx.fillStyle = 'black';
-          ctx.fillText(label, node.x - ctx.measureText(label).width / 2, node.y + 4);
+          ctx.fillText(
+            label,
+            node.x - ctx.measureText(label).width / 2,
+            node.y + 4
+          );
+
+          // Add custom styling for nodes
+          ctx.beginPath();
+          if (node.labels.includes('Train')) {
+            ctx.fillStyle = 'blue';
+          } else if (node.labels.includes('Station')) {
+            ctx.fillStyle = 'orange';
+          } else {
+            ctx.fillStyle = 'gray';
+          }
+          ctx.arc(node.x, node.y, 10, 0, 2 * Math.PI);
+          ctx.fill();
         }}
       />
     </div>
