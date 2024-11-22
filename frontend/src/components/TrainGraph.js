@@ -177,8 +177,10 @@ import axios from 'axios';
 
 function TrainGraph() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
-  const [trainID, setTrainID] = useState(''); // User input
-  const [error, setError] = useState(null); // For handling errors
+  const [trainID, setTrainID] = useState('');
+  const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const stationsPerPage = 10; // Number of stations per page
 
   const fetchTrainGraph = () => {
     if (!trainID.trim()) {
@@ -186,13 +188,14 @@ function TrainGraph() {
       return;
     }
 
-    setError(null); // Clear any previous errors
+    setError(null);
 
     axios
       .get(`http://localhost:3001/train-graph/${trainID}`)
       .then((response) => {
         const { nodes, links } = buildCustomGraph(response.data);
         setGraphData({ nodes, links });
+        setCurrentPage(1); // Reset to the first page on new fetch
       })
       .catch((error) => {
         console.error('Error fetching train graph:', error);
@@ -203,11 +206,9 @@ function TrainGraph() {
   const buildCustomGraph = (data) => {
     const { nodes: rawNodes, links: rawLinks } = data;
 
-    // Nodes and links for the new structure
     const nodes = [];
     const links = [];
 
-    // Find the train node and all stations
     const trainNode = rawNodes.find((node) => node.labels.includes('Train'));
     const stationNodes = rawNodes.filter((node) => node.labels.includes('Station'));
 
@@ -216,15 +217,12 @@ function TrainGraph() {
       return { nodes: [], links: [] };
     }
 
-    // Add train node
     nodes.push(trainNode);
 
-    // Add the first station and link it to the train node
     const firstStation = stationNodes[0];
     nodes.push(firstStation);
     links.push({ source: trainNode.id, target: firstStation.id, relationship: 'TRAVELS_TO' });
 
-    // Sequentially add stations and connect them using NEXT_STATION
     for (let i = 0; i < stationNodes.length - 1; i++) {
       const currentStation = stationNodes[i];
       const nextStation = stationNodes[i + 1];
@@ -241,6 +239,71 @@ function TrainGraph() {
 
     return { nodes, links };
   };
+
+  const getPaginatedGraphData = () => {
+    const startIndex = (currentPage - 1) * stationsPerPage;
+    const endIndex = startIndex + stationsPerPage;
+
+    const paginatedNodes = graphData.nodes.slice(startIndex, endIndex);
+
+    const paginatedNodeIds = paginatedNodes.map((node) => node.id);
+
+    const paginatedLinks = graphData.links.filter(
+      (link) =>
+        paginatedNodeIds.includes(link.source) || paginatedNodeIds.includes(link.target)
+    );
+
+    const additionalNodes = graphData.nodes.filter((node) =>
+      paginatedLinks.some(
+        (link) => link.source === node.id || link.target === node.id
+      )
+    );
+
+    const combinedNodes = [...new Set([...paginatedNodes, ...additionalNodes])];
+
+    return { nodes: combinedNodes, links: paginatedLinks };
+  };
+
+  const totalPages = Math.ceil(graphData.nodes.length / stationsPerPage);
+
+  const handlePageJump = (e) => {
+    const page = parseInt(e.target.value, 10);
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setError(null);
+    } else {
+      setError('Invalid page number.');
+    }
+  };
+
+  const renderPagination = () => (
+    <div style={{ marginBottom: '20px' }}>
+      <button
+        onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+        disabled={currentPage === 1}
+      >
+        Previous
+      </button>
+      <input
+        type="number"
+        value={currentPage}
+        onChange={handlePageJump}
+        style={{
+          width: '50px',
+          textAlign: 'center',
+          margin: '0 10px',
+          padding: '5px',
+        }}
+      />
+      <span>of {totalPages}</span>
+      <button
+        onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+        disabled={currentPage === totalPages}
+      >
+        Next
+      </button>
+    </div>
+  );
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -260,8 +323,10 @@ function TrainGraph() {
       </button>
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
+      {renderPagination()}
+
       <ForceGraph2D
-        graphData={graphData}
+        graphData={getPaginatedGraphData()}
         nodeLabel={(node) => `${node.name} (${node.labels.join(', ')})`}
         linkLabel={(link) => link.relationship}
         linkDirectionalArrowLength={8}
@@ -281,7 +346,6 @@ function TrainGraph() {
             node.y + 4
           );
 
-          // Add custom styling for nodes
           ctx.beginPath();
           if (node.labels.includes('Train')) {
             ctx.fillStyle = 'blue';

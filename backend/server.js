@@ -588,12 +588,9 @@ app.get('/train-graph/:trainID', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const trainID = req.params.trainID;
 
-  if (!trainID) {
-    return res.status(400).send({ error: 'Train ID is required' });
-  }
-
   try {
-    const query = `
+    const result = await session.run(
+      `
       MATCH (train:Train {TrainID: $trainID})-[r:TRAVELS_TO]->(station:Station)
       OPTIONAL MATCH (station)-[n:NEXT_STATION {TrainID: $trainID}]->(nextStation:Station)
       RETURN 
@@ -603,77 +600,78 @@ app.get('/train-graph/:trainID', async (req, res) => {
         ID(station) AS stationId, 
         station.realName AS stationName, 
         ID(nextStation) AS nextStationId, 
-        nextStation.realName AS nextStationName
-    `;
+        nextStation.realName AS nextStationName,
+        n.daysElapsed AS daysElapsed,
+        n.departureTime AS departureTime
+      ORDER BY n.daysElapsed, n.departureTime
+      `,
+      { trainID }
+    );
 
-    const result = await session.run(query, { trainID });
-
-    const nodes = {};
+    // Initialize containers
+    const nodesMap = new Map();
     const links = [];
 
-    if (result.records.length === 0) {
-      console.error('No data found for trainID:', trainID);
-      return res.status(404).send({ error: `No data found for trainID: ${trainID}` });
-    }
-
+    // Add Train node first
+    let trainNode;
     result.records.forEach((record) => {
-      const trainId = record.get('trainId');
-      const stationId = record.get('stationId');
-      const nextStationId = record.get('nextStationId');
-
-      // Add train node
-      if (!nodes[trainId]) {
-        nodes[trainId] = {
-          id: String(trainId),
-          name: record.get('trainName'),
-          labels: ['Train'],
-          type: record.get('trainType') || 'Unknown',
+      if (!trainNode) {
+        trainNode = {
+          id: String(record.get("trainId")),
+          name: record.get("trainName"),
+          labels: ["Train"],
+          type: record.get("trainType"),
         };
+        nodesMap.set(trainNode.id, trainNode);
       }
 
-      // Add current station node
-      if (!nodes[stationId]) {
-        nodes[stationId] = {
-          id: String(stationId),
-          name: record.get('stationName') || 'Unknown Station',
-          labels: ['Station'],
-        };
-      }
+      // Add Station nodes and links in order
+      const stationId = String(record.get("stationId"));
+      const stationName = record.get("stationName");
+      const nextStationId = record.get("nextStationId")
+        ? String(record.get("nextStationId"))
+        : null;
+      const nextStationName = record.get("nextStationName");
 
-      // Add next station node, if it exists
-      if (nextStationId && !nodes[nextStationId]) {
-        nodes[nextStationId] = {
-          id: String(nextStationId),
-          name: record.get('nextStationName') || 'Unknown Station',
-          labels: ['Station'],
-        };
-      }
-
-      // Add links
-      if (stationId) {
-        links.push({
-          source: String(trainId),
-          target: String(stationId),
-          relationship: 'TRAVELS_TO',
+      if (!nodesMap.has(stationId)) {
+        nodesMap.set(stationId, {
+          id: stationId,
+          name: stationName,
+          labels: ["Station"],
         });
       }
 
-      if (stationId && nextStationId) {
+      if (nextStationId && !nodesMap.has(nextStationId)) {
+        nodesMap.set(nextStationId, {
+          id: nextStationId,
+          name: nextStationName,
+          labels: ["Station"],
+        });
+      }
+
+      // Add links
+      if (!links.some((link) => link.source === trainNode.id && link.target === stationId)) {
         links.push({
-          source: String(stationId),
-          target: String(nextStationId),
-          relationship: 'NEXT_STATION',
+          source: trainNode.id,
+          target: stationId,
+          relationship: "TRAVELS_TO",
+        });
+      }
+
+      if (nextStationId) {
+        links.push({
+          source: stationId,
+          target: nextStationId,
+          relationship: "NEXT_STATION",
         });
       }
     });
 
-    console.log('Processed Nodes:', Object.values(nodes));
-    console.log('Processed Links:', links);
-
-    res.json({ nodes: Object.values(nodes), links });
+    const nodes = Array.from(nodesMap.values());
+    res.json({ nodes, links });
   } catch (error) {
-    console.error('Error querying Neo4j:', error);
-    res.status(500).send('Internal server error');
+    console.error("Error querying Neo4j:", error);
+    res.status(500).send("Internal server error");
   } finally {
     await session.close();
   }
