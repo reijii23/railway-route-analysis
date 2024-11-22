@@ -271,59 +271,83 @@ const convertNeo4jInt = (value) => {
 
 function TrainRoutes() {
   const [routeData, setRouteData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]);
   const [trainID, setTrainID] = useState('');
   const [trainType, setTrainType] = useState('');
   const [summaryView, setSummaryView] = useState(true); // State to toggle between summary and full details
+  const [fromStation, setFromStation] = useState('');
+  const [toStation, setToStation] = useState('');
+  const [stations, setStations] = useState([]); // To populate the dropdowns
 
   // Fetch summary data on component mount or when trainType changes
   useEffect(() => {
-    fetchSummaryData(trainType);
-  }, [trainType]);
+    fetchSummaryData();
+  }, []);
 
-  // Fetch all train summaries or by type
   const fetchSummaryData = (type = '') => {
     axios
       .get(`http://localhost:3001/train-summary`, { params: { type } })
-      .then(response => {
+      .then((response) => {
         setRouteData(response.data);
+        setFilteredData(response.data); // Initialize filtered data with full dataset
+        extractStations(response.data); // Populate station dropdowns
         setSummaryView(true); // Show summary by default
       })
-      .catch(error => console.error('Error fetching train summary:', error));
+      .catch((error) => console.error('Error fetching train summary:', error));
   };
 
-  // Fetch full route details for a specific train by ID
   const fetchRouteData = (id) => {
     axios
       .get(`http://localhost:3001/train-route/${id}`)
-      .then(response => {
-        setRouteData(response.data);
+      .then((response) => {
+        setFilteredData(response.data);
         setSummaryView(false); // Switch to full details view
       })
-      .catch(error => console.error('Error fetching train route:', error));
+      .catch((error) => console.error('Error fetching train route:', error));
   };
 
-  // Handle input change for TrainID search
+  const extractStations = (data) => {
+    const uniqueStations = Array.from(
+      new Set(data.flatMap((row) => [row.FirstStation, row.LastStation]))
+    ).sort();
+    setStations(uniqueStations);
+  };
+
+  // Apply filters whenever dropdowns or search bar values change
+  useEffect(() => {
+    const filtered = routeData.filter((row) => {
+      const matchesFrom = fromStation ? row.FirstStation === fromStation : true;
+      const matchesTo = toStation ? row.LastStation === toStation : true;
+      const matchesTrainID = trainID ? row.TrainID.toString().includes(trainID) : true;
+      return matchesFrom && matchesTo && matchesTrainID;
+    });
+    setFilteredData(filtered);
+  }, [fromStation, toStation, trainID, routeData]);
+
   const handleInputChange = (e) => {
-    const id = e.target.value;
-    setTrainID(id);
-    if (id) {
-      fetchRouteData(id); // Fetch specific route when ID is entered
-    } else {
-      fetchSummaryData(trainType); // Reload summary with current type
-    }
+    setTrainID(e.target.value);
   };
 
-  // Handle train type selection
   const handleTypeChange = (e) => {
     const type = e.target.value;
     setTrainType(type);
-    fetchSummaryData(type); // Fetch summary with selected type
+    fetchSummaryData(type); // Fetch summary data filtered by type
+  };
+
+  // Reset all filters and reload the page
+  const handleReset = () => {
+    setTrainID('');
+    setTrainType('');
+    setFromStation('');
+    setToStation('');
+    fetchSummaryData(''); // Reload all train summaries
   };
 
   return (
     <div>
       <h1>Train Route Details</h1>
 
+      {/* Input controls */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
         <input
           type="text"
@@ -331,14 +355,32 @@ function TrainRoutes() {
           onChange={handleInputChange}
           placeholder="Enter Train ID"
         />
-
         <select value={trainType} onChange={handleTypeChange}>
           <option value="">All Types</option>
           <option value="Commuter">Commuter</option>
           <option value="Cargo">Cargo</option>
         </select>
+        <select value={fromStation} onChange={(e) => setFromStation(e.target.value)}>
+          <option value="">From Station</option>
+          {stations.map((station, index) => (
+            <option key={index} value={station}>
+              {station}
+            </option>
+          ))}
+        </select>
+        <select value={toStation} onChange={(e) => setToStation(e.target.value)}>
+          <option value="">To Station</option>
+          {stations.map((station, index) => (
+            <option key={index} value={station}>
+              {station}
+            </option>
+          ))}
+        </select>
+
+        <button onClick={handleReset}>Reset</button>
       </div>
 
+      {/* Data rendering */}
       {summaryView ? (
         // Display summary data
         <table border="1" cellPadding="10">
@@ -355,7 +397,7 @@ function TrainRoutes() {
             </tr>
           </thead>
           <tbody>
-            {routeData.map((row) => (
+            {filteredData.map((row) => (
               <tr key={row.TrainID} onClick={() => fetchRouteData(row.TrainID)}>
                 <td>{row.TrainID}</td>
                 <td>{row.Type}</td>
@@ -388,7 +430,7 @@ function TrainRoutes() {
             </tr>
           </thead>
           <tbody>
-            {routeData.map((row, index) => (
+            {filteredData.map((row, index) => (
               <tr key={index}>
                 <td>{row.TrainID}</td>
                 <td>{row.Type}</td>
@@ -405,6 +447,13 @@ function TrainRoutes() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* No results message */}
+      {filteredData.length === 0 && (
+        <p>
+          There are no routes from {fromStation || '___'} to {toStation || '___'}.
+        </p>
       )}
     </div>
   );

@@ -259,7 +259,6 @@ RETURN
     LastArrivalTime, 
     TotalTravelTimeInMinutes
 ORDER BY TrainID ASC
-LIMIT 50
     `;
 
     const result = await session.run(query, { type });
