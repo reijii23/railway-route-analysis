@@ -68,6 +68,9 @@ function NetworkInsights() {
         <button onClick={() => fetchData('gross-ton-km')}>
           Gross Ton/Kilometer (GTK)
         </button>
+        <button onClick={() => fetchData('waiting-factor')}>
+          Waiting Factor
+        </button>
       </div>
       <div>{queryType && <h2>{queryType.replace(/-/g, ' ')}</h2>}</div>
       {renderTable()}

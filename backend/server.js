@@ -494,6 +494,53 @@ app.get('/gross-ton-km', async (req, res) => {
 
 
 
+//Route 6: Waiting Factor insights
+app.get('/waiting-factor', async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+
+  try {
+    const result = await session.run(`
+      MATCH (startStation:Station)-[r1:NEXT_STATION]->(endStation:Station)
+      MATCH (train:Train)-[r2:TRAVELS_TO]->(startStation)
+      WITH train, startStation, endStation,
+           r1.departureTime AS departure, r1.arrivalTime AS arrival
+      WHERE duration.inSeconds(arrival, departure).seconds >= 0
+      WITH train, SUM(duration.inSeconds(arrival, departure).seconds) AS totalWaitTime
+      MATCH (train)-[r3:TRAVELS_TO]->(station:Station)
+      WITH train, totalWaitTime,
+           MIN(r3.departureTime) AS firstDepTime, MAX(r3.arrivalTime) AS lastArrTime
+      WITH train, totalWaitTime / 60 AS totalWaitTimeInMinutes,
+           duration.inSeconds(firstDepTime, lastArrTime).seconds / 60 AS totalJourneyTimeInMinutes
+      RETURN train.TrainID AS TrainID,
+             totalWaitTimeInMinutes AS TotalWaitTime,
+             totalJourneyTimeInMinutes AS TotalJourneyTime,
+             CASE
+               WHEN totalJourneyTimeInMinutes > 0 THEN
+                 totalWaitTimeInMinutes * 1.0 / totalJourneyTimeInMinutes
+               ELSE 0
+             END AS WaitingFactor
+      ORDER BY WaitingFactor ASC
+    `);
+
+    const insights = result.records.map((record) => ({
+      TrainID: record.get('TrainID'),
+      TotalWaitTime: record.get('TotalWaitTime'),
+      TotalJourneyTime: record.get('TotalJourneyTime'),
+      WaitingFactor: record.get('WaitingFactor'),
+    }));
+
+    res.json(insights);
+  } catch (error) {
+    console.error('Error fetching Waiting Factor:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    await session.close();
+  }
+});
+
+
+
+
 // Route to fetch graph data (stations, trains, and their relationships) #UNUSED
 app.get('/graph-data', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
@@ -726,6 +773,55 @@ app.get('/province-graph', async (req, res) => {
   }
 });
 
+
+
+// Route to fetch all stations in the system.
+app.get('/stations', async (req, res) => {
+  const session = driver.session();
+  try {
+    const result = await session.run(`
+      MATCH (station:Station)
+      RETURN station.realName AS stationName
+      ORDER BY station.realName
+    `);
+    const stations = result.records.map(record => record.get('stationName'));
+    res.json(stations);
+  } catch (error) {
+    console.error('Error fetching stations:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    await session.close();
+  }
+});
+
+
+
+// Route to get train routes by stations
+app.get('/routes-by-stations', async (req, res) => {
+  const { from, to } = req.query;
+  const session = driver.session();
+  try {
+    const result = await session.run(`
+      MATCH p=(start:Station {realName: $from})-[:NEXT_STATION*]->(end:Station {realName: $to})
+      WITH p, nodes(p) AS stations, relationships(p) AS links
+      RETURN 
+        [station IN stations | station.realName] AS stationNames,
+        [link IN links | properties(link)] AS linkProperties
+    `, { from, to });
+
+    const routes = result.records.map(record => ({
+      stationNames: record.get('stationNames'),
+      linkProperties: record.get('linkProperties'),
+    }));
+
+    res.json(routes);
+  } catch (error) {
+    console.error('Error fetching routes by stations:', error);
+    res.status(500).send('Internal Server Error');
+  } finally {
+    await session.close();
+  }
+});
 
 
 app.listen(port, () => {
