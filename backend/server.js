@@ -420,7 +420,7 @@ app.get('/average-travel-time', async (req, res) => {
         s1.realName AS StartStation,
         s2.realName AS EndStation,
         conn.distance AS DistanceInKm,
-        AVG(abs(duration.between(next.departureTime, next.arrivalTime).minutes)) AS AvgTravelTimeInMinutes
+        AVG(duration.between(next.departureTime, next.arrivalTime).minutes) AS AvgTravelTimeInMinutes
       ORDER BY AvgTravelTimeInMinutes DESC
     `;
 
