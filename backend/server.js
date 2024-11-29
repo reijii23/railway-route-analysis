@@ -25,83 +25,6 @@ function convertNeo4jInt(value) {
   return typeof value === 'object' && value !== null && 'low' in value ? value.low : value;
 }
 
-// // Fetch all train routes
-// app.get('/all-train-routes', async (req, res) => {
-//   const session = driver.session({ database: "neo4j" });
-
-//   try {
-//     const result = await session.run(`
-//       MATCH (train:Train)-[r:TRAVELS_TO]->(departureStation:Station)
-//       OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: train.TrainID}]->(arrivalStation:Station)
-//       RETURN train.TrainID AS TrainID, 
-//              departureStation.name AS DepartureStation, 
-//              r.departureTime AS DepartureTime, 
-//              arrivalStation.name AS ArrivalStation, 
-//              n.arrivalTime AS ArrivalTime, 
-//              r.daysElapsed AS DaysElapsed
-//       ORDER BY TrainID, DaysElapsed, DepartureTime
-//     `);
-
-//     const formattedData = result.records.map(record => ({
-//       TrainID: record.get('TrainID'),
-//       DepartureStation: record.get('DepartureStation'),
-//       DepartureTime: formatTime(record.get('DepartureTime')), // Format time
-//       ArrivalStation: record.get('ArrivalStation'),
-//       ArrivalTime: formatTime(record.get('ArrivalTime')), // Format time
-//       DaysElapsed: convertNeo4jInt(record.get('DaysElapsed')) // Handle Neo4j integer
-//     }));
-
-//     res.json(formattedData);
-//   } catch (error) {
-//     console.error('Error querying Neo4j:', error);
-//     res.status(500).send('Internal server error');
-//   } finally {
-//     await session.close();
-//   }
-// });
-
-// app.get('/all-train-routes', async (req, res) => {
-//   const session = driver.session({ database: "neo4j" });
-
-//   // Get the train type from the query parameters (if provided)
-//   const trainType = req.query.type;
-
-//   try {
-//     const query = `
-//       MATCH (train:Train)-[r:TRAVELS_TO]->(departureStation:Station)
-//       ${trainType ? 'WHERE train.type = $trainType' : ''}  // Filter by type if provided
-//       OPTIONAL MATCH (departureStation)-[n:NEXT_STATION {TrainID: train.TrainID}]->(arrivalStation:Station)
-//       RETURN train.TrainID AS TrainID, 
-//              train.type AS Type, 
-//              departureStation.name AS DepartureStation, 
-//              r.departureTime AS DepartureTime, 
-//              arrivalStation.name AS ArrivalStation, 
-//              n.arrivalTime AS ArrivalTime, 
-//              r.daysElapsed AS DaysElapsed
-//       ORDER BY TrainID, DaysElapsed, DepartureTime
-//     `;
-
-//     const result = await session.run(query, { trainType });
-
-//     const formattedData = result.records.map(record => ({
-//       TrainID: record.get('TrainID'),
-//       Type: record.get('Type'),
-//       DepartureStation: record.get('DepartureStation'),
-//       DepartureTime: formatTime(record.get('DepartureTime')),
-//       ArrivalStation: record.get('ArrivalStation'),
-//       ArrivalTime: formatTime(record.get('ArrivalTime')),
-//       DaysElapsed: convertNeo4jInt(record.get('DaysElapsed')),
-//     }));
-
-//     res.json(formattedData);
-//   } catch (error) {
-//     console.error('Error querying Neo4j:', error);
-//     res.status(500).send('Internal server error');
-//   } finally {
-//     await session.close();
-//   }
-// });
-
 // Fetch all train routes
 app.get('/all-train-routes', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
@@ -571,16 +494,6 @@ RETURN
       const targetId = record.get('targetId');
       const trainId = record.get('trainId');
 
-      // nodes[sourceId] = { id: sourceId, name: record.get('sourceName'), labels: record.get('sourceLabels') };
-      // nodes[targetId] = { id: targetId, name: record.get('targetName'), labels: record.get('targetLabels') };
-
-      // if (trainId) {
-      //   nodes[trainId] = { id: trainId, name: record.get('trainName'), labels: ['Train'], type: record.get('trainType') };
-      //   links.push({ source: trainId, target: sourceId, relationship: 'TRAVELS_TO' });
-      // }
-
-      // links.push({ source: sourceId, target: targetId, distance: record.get('distance') });
-
       nodes[String(sourceId)] = { 
         id: String(sourceId), 
         name: record.get('sourceName'), 
@@ -824,69 +737,116 @@ app.get('/routes-by-stations', async (req, res) => {
 
 
 
-// Route: Fetch neighbors of a station
-app.get('/station-neighbors', async (req, res) => {
+// Route: Fetch neighbors of a station and its degree
+app.get('/station-degree', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const { stationRealName } = req.query;
 
   try {
     const query = `
       MATCH (station:Station {realName: $stationRealName})
-      OPTIONAL MATCH (station)-[r:NEXT_STATION]->(neighbor:Station)
-      OPTIONAL MATCH (neighbor)<-[r_reverse:NEXT_STATION]-(station)
-      RETURN DISTINCT 
+      OPTIONAL MATCH (station)-[outRel:NEXT_STATION]->(neighbor:Station)
+      OPTIONAL MATCH (neighbor)-[inRel:NEXT_STATION]->(station)
+      RETURN 
         station.realName AS StationName,
-        neighbor.realName AS NeighborName,
-        COALESCE(r.TrainID, r_reverse.TrainID) AS TrainID,
-        COALESCE(r.departureTime, r_reverse.departureTime) AS DepartureTime,
-        COALESCE(r.arrivalTime, r_reverse.arrivalTime) AS ArrivalTime,
-        COALESCE(r.daysElapsed, r_reverse.daysElapsed) AS DaysElapsed,
-        COALESCE(r.type, r_reverse.type) AS TrainType
-      ORDER BY StationName, NeighborName, TrainID
+        COLLECT(DISTINCT neighbor.realName) AS Neighbors,
+        size([(station)-[:NEXT_STATION]->(:Station) | 1]) AS OutDegree,
+        size([(:Station)-[:NEXT_STATION]->(station) | 1]) AS InDegree,
+        size([(station)-[:NEXT_STATION]->(:Station) | 1]) +
+        size([(:Station)-[:NEXT_STATION]->(station) | 1]) AS TotalDegree
     `;
 
     const result = await session.run(query, { stationRealName });
 
-    const nodes = [];
-    const links = [];
+    if (result.records.length === 0) {
+      res.status(404).json({ error: `Station "${stationRealName}" not found.` });
+      return;
+    }
 
-    // Process each trip as a separate edge
-    result.records.forEach(record => {
-      const stationName = record.get('StationName');
-      const neighborName = record.get('NeighborName');
+    const record = result.records[0];
+    const response = {
+      StationName: record.get('StationName'),
+      Neighbors: record.get('Neighbors') || [],
+      OutDegree: convertNeo4jInt(record.get('OutDegree')),
+      InDegree: convertNeo4jInt(record.get('InDegree')),
+      TotalDegree: convertNeo4jInt(record.get('TotalDegree')),
+    };
 
-      // Add station node
-      if (stationName && !nodes.find(node => node.id === stationName)) {
-        nodes.push({ id: stationName, group: 'Station', label: stationName });
-      }
-
-      // Add neighbor node
-      if (neighborName && !nodes.find(node => node.id === neighborName)) {
-        nodes.push({ id: neighborName, group: 'Station', label: neighborName });
-      }
-
-      // Add each trip as a separate edge
-      if (stationName && neighborName) {
-        links.push({
-          source: stationName,
-          target: neighborName,
-          trainID: record.get('TrainID'),
-          departureTime: formatTime(record.get('DepartureTime')), // Use your existing function
-          arrivalTime: formatTime(record.get('ArrivalTime')),     // Use your existing function
-          daysElapsed: record.get('DaysElapsed'),
-          type: record.get('TrainType')
-        });
-      }
-    });
-
-    res.json({ nodes, links });
+    res.json(response);
   } catch (error) {
-    console.error('Error querying Neo4j:', error);
+    console.error('Error fetching station degree:', error);
     res.status(500).send('Internal server error');
   } finally {
     await session.close();
   }
 });
+
+
+
+
+// // Route: Fetch neighbors of a station
+// app.get('/station-neighbors', async (req, res) => {
+//   const session = driver.session({ database: "neo4j" });
+//   const { stationRealName } = req.query;
+
+//   try {
+//     const query = `
+//       MATCH (station:Station {realName: $stationRealName})
+//       OPTIONAL MATCH (station)-[r:NEXT_STATION]->(neighbor:Station)
+//       OPTIONAL MATCH (neighbor)<-[r_reverse:NEXT_STATION]-(station)
+//       RETURN DISTINCT 
+//         station.realName AS StationName,
+//         neighbor.realName AS NeighborName,
+//         COALESCE(r.TrainID, r_reverse.TrainID) AS TrainID,
+//         COALESCE(r.departureTime, r_reverse.departureTime) AS DepartureTime,
+//         COALESCE(r.arrivalTime, r_reverse.arrivalTime) AS ArrivalTime,
+//         COALESCE(r.daysElapsed, r_reverse.daysElapsed) AS DaysElapsed,
+//         COALESCE(r.type, r_reverse.type) AS TrainType
+//       ORDER BY StationName, NeighborName, TrainID
+//     `;
+
+//     const result = await session.run(query, { stationRealName });
+
+//     const nodes = [];
+//     const links = [];
+
+//     // Process each trip as a separate edge
+//     result.records.forEach(record => {
+//       const stationName = record.get('StationName');
+//       const neighborName = record.get('NeighborName');
+
+//       // Add station node
+//       if (stationName && !nodes.find(node => node.id === stationName)) {
+//         nodes.push({ id: stationName, group: 'Station', label: stationName });
+//       }
+
+//       // Add neighbor node
+//       if (neighborName && !nodes.find(node => node.id === neighborName)) {
+//         nodes.push({ id: neighborName, group: 'Station', label: neighborName });
+//       }
+
+//       // Add each trip as a separate edge
+//       if (stationName && neighborName) {
+//         links.push({
+//           source: stationName,
+//           target: neighborName,
+//           trainID: record.get('TrainID'),
+//           departureTime: formatTime(record.get('DepartureTime')), // Use your existing function
+//           arrivalTime: formatTime(record.get('ArrivalTime')),     // Use your existing function
+//           daysElapsed: record.get('DaysElapsed'),
+//           type: record.get('TrainType')
+//         });
+//       }
+//     });
+
+//     res.json({ nodes, links });
+//   } catch (error) {
+//     console.error('Error querying Neo4j:', error);
+//     res.status(500).send('Internal server error');
+//   } finally {
+//     await session.close();
+//   }
+// });
 
 
 
