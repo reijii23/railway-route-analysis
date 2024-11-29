@@ -210,7 +210,7 @@ ORDER BY TrainID ASC
 
 
 // Route 1: Most Connected Stations
-app.get('/most-connected-stations', async (req, res) => {
+app.get('/Station-centrality-by-calculating-Out-Degrees', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {
@@ -220,7 +220,6 @@ RETURN
     s.realName AS Station,
     COUNT(*) AS Connections
 ORDER BY Connections DESC
-LIMIT 10
     `);
 
     const formattedData = result.records.map(record => ({
@@ -240,7 +239,7 @@ LIMIT 10
 
 
 // Route 2: Peak Travel Times
-app.get('/peak-travel-times', async (req, res) => {
+app.get('/Busiest-travel-times-for-each-station', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {
@@ -252,7 +251,6 @@ RETURN
     r.departureTime.hour + 1 AS Until, 
     COUNT(*) AS NumberOfDepartures
 ORDER BY NumberOfDepartures DESC
-LIMIT 10
     `);
 
     const formattedData = result.records.map(record => ({
@@ -274,7 +272,7 @@ LIMIT 10
 
 
 // Route 3: Total Travel Time for Each Train
-app.get('/total-travel-time', async (req, res) => {
+app.get('/Total-travel-time-for-each-train', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {
@@ -308,7 +306,6 @@ app.get('/total-travel-time', async (req, res) => {
         arrivalTimes[-1] AS LastArrivalTime, 
         TotalTravelTimeInMinutes
       ORDER BY TotalTravelTimeInMinutes DESC
-      LIMIT 10
     `);
 
     const formattedData = result.records.map(record => ({
@@ -332,7 +329,7 @@ app.get('/total-travel-time', async (req, res) => {
 
 
 // Route 4: Average travel time between stations
-app.get('/average-travel-time', async (req, res) => {
+app.get('/Average-travel-time-between-stations', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {
@@ -368,7 +365,7 @@ app.get('/average-travel-time', async (req, res) => {
 
 
 // Route 5: Gross Ton/Kilometer Route
-app.get('/gross-ton-km', async (req, res) => {
+app.get('/Gross-Ton-per-Kilometer-values-for-each-train', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {
@@ -390,7 +387,6 @@ app.get('/gross-ton-km', async (req, res) => {
           (WeightPerTrip * TripCount) AS TotalTonnage,
           (WeightPerTrip * TripCount) / TotalDistanceInKm AS GrossTonPerKm
       ORDER BY GrossTonPerKm DESC
-      LIMIT 10
     `;
 
     const result = await session.run(query);
@@ -417,7 +413,7 @@ app.get('/gross-ton-km', async (req, res) => {
 
 
 //Route 6: Waiting Factor insights
-app.get('/waiting-factor', async (req, res) => {
+app.get('/Waiting-Factor-scores-for-each-train', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
   try {

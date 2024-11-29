@@ -272,12 +272,21 @@ const convertNeo4jInt = (value) => {
 function TrainRoutes() {
   const [routeData, setRouteData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1); // Current page
+  const itemsPerPage = 10; // Items per page
   const [trainID, setTrainID] = useState('');
   const [trainType, setTrainType] = useState('');
-  const [summaryView, setSummaryView] = useState(true); // State to toggle between summary and full details
+  const [summaryView, setSummaryView] = useState(true); // Toggle between summary and details view
   const [fromStation, setFromStation] = useState('');
   const [toStation, setToStation] = useState('');
-  const [stations, setStations] = useState([]); // To populate the dropdowns
+  const [stations, setStations] = useState([]); // Populate station dropdowns
+
+  // Compute paginated data
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+  // Calculate total pages
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
 
   // Fetch summary data on component mount or when trainType changes
   useEffect(() => {
@@ -292,6 +301,7 @@ function TrainRoutes() {
         setFilteredData(response.data); // Initialize filtered data with full dataset
         extractStations(response.data); // Populate station dropdowns
         setSummaryView(true); // Show summary by default
+        setCurrentPage(1); // Reset to first page
       })
       .catch((error) => console.error('Error fetching train summary:', error));
   };
@@ -302,6 +312,7 @@ function TrainRoutes() {
       .then((response) => {
         setFilteredData(response.data);
         setSummaryView(false); // Switch to full details view
+        setCurrentPage(1); // Reset to first page
       })
       .catch((error) => console.error('Error fetching train route:', error));
   };
@@ -322,6 +333,7 @@ function TrainRoutes() {
       return matchesFrom && matchesTo && matchesTrainID;
     });
     setFilteredData(filtered);
+    setCurrentPage(1); // Reset to first page when filters change
   }, [fromStation, toStation, trainID, routeData]);
 
   const handleInputChange = (e) => {
@@ -334,13 +346,21 @@ function TrainRoutes() {
     fetchSummaryData(type); // Fetch summary data filtered by type
   };
 
-  // Reset all filters and reload the page
   const handleReset = () => {
     setTrainID('');
     setTrainType('');
     setFromStation('');
     setToStation('');
     fetchSummaryData(''); // Reload all train summaries
+  };
+
+  // Pagination handlers
+  const handleNext = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  const handlePrevious = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
 
   return (
@@ -382,38 +402,60 @@ function TrainRoutes() {
 
       {/* Data rendering */}
       {summaryView ? (
-        // Display summary data
-        <table border="1" cellPadding="10">
-          <thead>
-            <tr>
-              <th>Train ID</th>
-              <th>Type</th>
-              <th>First Station</th>
-              <th>First City</th>
-              <th>First Province</th>
-              <th>Last Station</th>
-              <th>Last City</th>
-              <th>Last Province</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredData.map((row) => (
-              <tr key={row.TrainID} onClick={() => fetchRouteData(row.TrainID)}>
-                <td>{row.TrainID}</td>
-                <td>{row.Type}</td>
-                <td>{row.FirstStation}</td>
-                <td>{row.FirstCity}</td>
-                <td>{row.FirstProvince}</td>
-                <td>{row.LastStation}</td>
-                <td>{row.LastCity}</td>
-                <td>{row.LastProvince}</td>
+        <div>
+          <table border="1" cellPadding="10">
+            <thead>
+              <tr>
+                <th>Train ID</th>
+                <th>Type</th>
+                <th>First Station</th>
+                <th>First City</th>
+                <th>First Province</th>
+                <th>Last Station</th>
+                <th>Last City</th>
+                <th>Last Province</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paginatedData.map((row) => (
+                <tr key={row.TrainID} onClick={() => fetchRouteData(row.TrainID)}>
+                  <td>{row.TrainID}</td>
+                  <td>{row.Type}</td>
+                  <td>{row.FirstStation}</td>
+                  <td>{row.FirstCity}</td>
+                  <td>{row.FirstProvince}</td>
+                  <td>{row.LastStation}</td>
+                  <td>{row.LastCity}</td>
+                  <td>{row.LastProvince}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Pagination Controls */}
+          <div style={{ marginTop: '20px', textAlign: 'center' }}>
+            <button
+              onClick={handlePrevious}
+              disabled={currentPage === 1}
+              style={{ marginRight: '10px' }}
+            >
+              Previous
+            </button>
+            <span>
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={handleNext}
+              disabled={currentPage === totalPages}
+              style={{ marginLeft: '10px' }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       ) : (
-        // Display full route details for selected train
         <table border="1" cellPadding="10">
+          {/* Full route details */}
           <thead>
             <tr>
               <th>Train ID</th>
@@ -449,7 +491,6 @@ function TrainRoutes() {
         </table>
       )}
 
-      {/* No results message */}
       {filteredData.length === 0 && (
         <p>
           There are no routes from {fromStation || '___'} to {toStation || '___'}.
