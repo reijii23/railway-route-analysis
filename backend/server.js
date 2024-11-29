@@ -783,71 +783,66 @@ app.get('/station-degree', async (req, res) => {
 
 
 
+// Route: To search for routes in between
+app.get('/search-trains-between', async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+  const { from, to } = req.query;
 
-// // Route: Fetch neighbors of a station
-// app.get('/station-neighbors', async (req, res) => {
-//   const session = driver.session({ database: "neo4j" });
-//   const { stationRealName } = req.query;
+  const convertNeo4jInt = (value) =>
+    typeof value === 'object' && value !== null && 'low' in value ? value.low : value;
 
-//   try {
-//     const query = `
-//       MATCH (station:Station {realName: $stationRealName})
-//       OPTIONAL MATCH (station)-[r:NEXT_STATION]->(neighbor:Station)
-//       OPTIONAL MATCH (neighbor)<-[r_reverse:NEXT_STATION]-(station)
-//       RETURN DISTINCT 
-//         station.realName AS StationName,
-//         neighbor.realName AS NeighborName,
-//         COALESCE(r.TrainID, r_reverse.TrainID) AS TrainID,
-//         COALESCE(r.departureTime, r_reverse.departureTime) AS DepartureTime,
-//         COALESCE(r.arrivalTime, r_reverse.arrivalTime) AS ArrivalTime,
-//         COALESCE(r.daysElapsed, r_reverse.daysElapsed) AS DaysElapsed,
-//         COALESCE(r.type, r_reverse.type) AS TrainType
-//       ORDER BY StationName, NeighborName, TrainID
-//     `;
+  try {
+    console.log(`Searching for trains between ${from} and ${to}`);
 
-//     const result = await session.run(query, { stationRealName });
+    // Step 1: Find candidate trains
+    const candidateQuery = `
+      MATCH (station:Station {realName: $from})<-[:NEXT_STATION|:TRAVELS_TO]-(train:Train)
+      RETURN train.TrainID AS TrainID
+      UNION
+      MATCH (station:Station {realName: $to})<-[:NEXT_STATION|:TRAVELS_TO]-(train:Train)
+      RETURN train.TrainID AS TrainID
+    `;
+    const candidateResult = await session.run(candidateQuery, { from, to });
+    const candidateTrains = candidateResult.records.map((record) => record.get('TrainID'));
 
-//     const nodes = [];
-//     const links = [];
+    if (candidateTrains.length === 0) {
+      res.json({ message: `No trains found between ${from} and ${to}.` });
+      return;
+    }
 
-//     // Process each trip as a separate edge
-//     result.records.forEach(record => {
-//       const stationName = record.get('StationName');
-//       const neighborName = record.get('NeighborName');
+    // Step 2: Validate paths for candidate trains
+    const routes = [];
+    for (const trainID of candidateTrains) {
+      const routeQuery = `
+        MATCH path=(fromStation:Station {realName: $from})-[:NEXT_STATION*..20]->(toStation:Station {realName: $to})
+        WHERE ALL(rel IN relationships(path) WHERE rel.TrainID = $trainID)
+        RETURN 
+          [station IN nodes(path) | station.realName] AS StationPath,
+          size(relationships(path)) AS NumberOfStops
+      `;
+      const routeResult = await session.run(routeQuery, { from, to, trainID });
 
-//       // Add station node
-//       if (stationName && !nodes.find(node => node.id === stationName)) {
-//         nodes.push({ id: stationName, group: 'Station', label: stationName });
-//       }
+      routeResult.records.forEach((record) => {
+        routes.push({
+          TrainID: trainID,
+          StationPath: record.get('StationPath'),
+          NumberOfStops: convertNeo4jInt(record.get('NumberOfStops')),
+        });
+      });
+    }
 
-//       // Add neighbor node
-//       if (neighborName && !nodes.find(node => node.id === neighborName)) {
-//         nodes.push({ id: neighborName, group: 'Station', label: neighborName });
-//       }
-
-//       // Add each trip as a separate edge
-//       if (stationName && neighborName) {
-//         links.push({
-//           source: stationName,
-//           target: neighborName,
-//           trainID: record.get('TrainID'),
-//           departureTime: formatTime(record.get('DepartureTime')), // Use your existing function
-//           arrivalTime: formatTime(record.get('ArrivalTime')),     // Use your existing function
-//           daysElapsed: record.get('DaysElapsed'),
-//           type: record.get('TrainType')
-//         });
-//       }
-//     });
-
-//     res.json({ nodes, links });
-//   } catch (error) {
-//     console.error('Error querying Neo4j:', error);
-//     res.status(500).send('Internal server error');
-//   } finally {
-//     await session.close();
-//   }
-// });
-
+    if (routes.length === 0) {
+      res.json({ message: `No trains found between ${from} and ${to}.` });
+    } else {
+      res.json(routes);
+    }
+  } catch (error) {
+    console.error('Error querying Neo4j:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    await session.close();
+  }
+});
 
 
 
