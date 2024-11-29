@@ -823,6 +823,74 @@ app.get('/routes-by-stations', async (req, res) => {
 });
 
 
+
+// Route: Fetch neighbors of a station
+app.get('/station-neighbors', async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+  const { stationRealName } = req.query;
+
+  try {
+    const query = `
+      MATCH (station:Station {realName: $stationRealName})
+      OPTIONAL MATCH (station)-[r:NEXT_STATION]->(neighbor:Station)
+      OPTIONAL MATCH (neighbor)<-[r_reverse:NEXT_STATION]-(station)
+      RETURN DISTINCT 
+        station.realName AS StationName,
+        neighbor.realName AS NeighborName,
+        COALESCE(r.TrainID, r_reverse.TrainID) AS TrainID,
+        COALESCE(r.departureTime, r_reverse.departureTime) AS DepartureTime,
+        COALESCE(r.arrivalTime, r_reverse.arrivalTime) AS ArrivalTime,
+        COALESCE(r.daysElapsed, r_reverse.daysElapsed) AS DaysElapsed,
+        COALESCE(r.type, r_reverse.type) AS TrainType
+      ORDER BY StationName, NeighborName, TrainID
+    `;
+
+    const result = await session.run(query, { stationRealName });
+
+    const nodes = [];
+    const links = [];
+
+    // Process each trip as a separate edge
+    result.records.forEach(record => {
+      const stationName = record.get('StationName');
+      const neighborName = record.get('NeighborName');
+
+      // Add station node
+      if (stationName && !nodes.find(node => node.id === stationName)) {
+        nodes.push({ id: stationName, group: 'Station', label: stationName });
+      }
+
+      // Add neighbor node
+      if (neighborName && !nodes.find(node => node.id === neighborName)) {
+        nodes.push({ id: neighborName, group: 'Station', label: neighborName });
+      }
+
+      // Add each trip as a separate edge
+      if (stationName && neighborName) {
+        links.push({
+          source: stationName,
+          target: neighborName,
+          trainID: record.get('TrainID'),
+          departureTime: formatTime(record.get('DepartureTime')), // Use your existing function
+          arrivalTime: formatTime(record.get('ArrivalTime')),     // Use your existing function
+          daysElapsed: record.get('DaysElapsed'),
+          type: record.get('TrainType')
+        });
+      }
+    });
+
+    res.json({ nodes, links });
+  } catch (error) {
+    console.error('Error querying Neo4j:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    await session.close();
+  }
+});
+
+
+
+
 app.listen(port, () => {
   console.log(`Backend server running on http://localhost:${port}`);
 });
