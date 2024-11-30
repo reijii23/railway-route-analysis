@@ -13,6 +13,7 @@ function NetworkInsights() {
   const [data, setData] = useState([]);
   const [queryType, setQueryType] = useState('');
   const [currentPage, setCurrentPage] = useState(1); // Current page
+  const [sortOrder, setSortOrder] = useState({ column: '', order: 'asc' }); // State to track sorting
   const itemsPerPage = 10; // Number of items per page
 
   // Compute paginated data
@@ -29,22 +30,57 @@ function NetworkInsights() {
         setData(response.data);
         setQueryType(endpoint);
         setCurrentPage(1); // Reset to the first page when new data is fetched
+        setSortOrder({ column: '', order: 'asc' }); // Reset sorting
       })
       .catch((error) => console.error('Error fetching data:', error));
   };
 
+  const handleSort = (header) => {
+    const newOrder = sortOrder.column === header && sortOrder.order === 'asc' ? 'desc' : 'asc';
+    setSortOrder({ column: header, order: newOrder });
+
+    const sortedData = [...data].sort((a, b) => {
+      const valueA = convertNeo4jInt(a[header]);
+      const valueB = convertNeo4jInt(b[header]);
+
+      if (newOrder === 'asc') {
+        return valueA > valueB ? 1 : -1;
+      } else {
+        return valueA < valueB ? 1 : -1;
+      }
+    });
+
+    setData(sortedData);
+  };
+
   const renderTable = () => {
     if (!data.length) return <p>No data available.</p>;
-  
+
     const headers = Object.keys(data[0]);
-  
+
     return (
       <div>
         <table border="1" cellPadding="10">
           <thead>
             <tr>
               {headers.map((header, index) => (
-                <th key={index}>{header}</th>
+                <th
+                  key={index}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => handleSort(header)}
+                >
+                  {header}
+                  {['Starting_From', 'NumberOfDepartures'].includes(header) &&
+                    queryType === 'Busiest-travel-times-for-each-station' && (
+                      <span>
+                        {sortOrder.column === header
+                          ? sortOrder.order === 'asc'
+                            ? ' 🔼'
+                            : ' 🔽'
+                          : ''}
+                      </span>
+                    )}
+                </th>
               ))}
             </tr>
           </thead>
@@ -65,7 +101,7 @@ function NetworkInsights() {
             ))}
           </tbody>
         </table>
-  
+
         {/* Pagination Controls */}
         <div style={{ marginTop: '20px', textAlign: 'center' }}>
           <button
@@ -89,7 +125,7 @@ function NetworkInsights() {
       </div>
     );
   };
-  
+
   return (
     <div>
       <h1>Network Insights</h1>

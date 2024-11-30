@@ -277,35 +277,44 @@ app.get('/Total-travel-time-for-each-train', async (req, res) => {
 
   try {
     const result = await session.run(`
-      MATCH (train:Train)-[r:TRAVELS_TO]->(station:Station)
-      WITH train, r, station
-      ORDER BY r.daysElapsed ASC, r.departureTime ASC
+MATCH (train:Train)-[r:TRAVELS_TO]->(station:Station)
+WITH train, r, station
+ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
-      WITH train.TrainID AS TrainID, 
-           COLLECT(station.realName) AS stations, 
-           COLLECT(r.departureTime) AS departureTimes, 
-           COLLECT(r.arrivalTime) AS arrivalTimes, 
-           COLLECT(r.daysElapsed) AS daysElapsedList
+// Collect relevant data
+WITH train.TrainID AS TrainID, 
+     COLLECT(station.realName) AS stations, 
+     COLLECT(r.departureTime) AS departureTimes, 
+     COLLECT(r.arrivalTime) AS arrivalTimes, 
+     COLLECT(r.daysElapsed) AS daysElapsedList
 
-      WITH TrainID, stations, departureTimes, arrivalTimes, daysElapsedList,
-           REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
-             totalTime + 
-             duration.between(
-               datetime({year: 2024, month: 1, day: 1, time: departureTimes[i]}) + duration({days: daysElapsedList[i]}), 
-               datetime({year: 2024, month: 1, day: 1, time: arrivalTimes[i]}) + duration({days: daysElapsedList[i]})
-             ).minutes
-           ) AS TotalTravelTimeInMinutes
+// Calculate total travel time dynamically
+WITH TrainID, stations, departureTimes, arrivalTimes, daysElapsedList,
+     REDUCE(totalTime = 0, i IN RANGE(0, SIZE(departureTimes)-1) | 
+       totalTime + 
+       duration.between(
+         datetime({year: 2024, month: 1, day: 1, time: departureTimes[i]}) + duration({days: daysElapsedList[i]}),
+         CASE 
+           // Handle intra-row transitions where arrivalTime < departureTime
+           WHEN arrivalTimes[i] < departureTimes[i] THEN
+             datetime({year: 2024, month: 1, day: 2, time: arrivalTimes[i]}) + duration({days: daysElapsedList[i]})
+           ELSE
+             datetime({year: 2024, month: 1, day: 1, time: arrivalTimes[i]}) + duration({days: daysElapsedList[i]})
+         END
+       ).minutes
+     ) AS TotalTravelTimeInMinutes
 
-      OPTIONAL MATCH (lastStation:Station {realName: stations[-1]})-[:NEXT_STATION {TrainID: TrainID}]->(nextStation:Station)
+// Match the final station and find the next station
+OPTIONAL MATCH (lastStation:Station {realName: stations[-1]})-[:NEXT_STATION {TrainID: TrainID}]->(nextStation:Station)
 
-      RETURN 
-        TrainID AS Train, 
-        stations[0] AS FirstStation, 
-        departureTimes[0] AS FirstDepartureTime, 
-        nextStation.realName AS FinalStation, 
-        arrivalTimes[-1] AS LastArrivalTime, 
-        TotalTravelTimeInMinutes
-      ORDER BY TotalTravelTimeInMinutes DESC
+RETURN 
+  TrainID AS Train, 
+  stations[0] AS FirstStation, 
+  departureTimes[0] AS FirstDepartureTime, 
+  nextStation.realName AS FinalStation, 
+  arrivalTimes[-1] AS LastArrivalTime, 
+  TotalTravelTimeInMinutes
+ORDER BY TotalTravelTimeInMinutes DESC
     `);
 
     const formattedData = result.records.map(record => ({
@@ -334,14 +343,39 @@ app.get('/Average-travel-time-between-stations', async (req, res) => {
 
   try {
     const query = `
-      MATCH (s1:Station)-[next: NEXT_STATION]->(s2:Station)
-      MATCH (s1)-[conn:CONNECTED]-(s2) // Use CONNECTED to get the distance
-      RETURN 
-        s1.realName AS StartStation,
-        s2.realName AS EndStation,
-        conn.distance AS DistanceInKm,
-        AVG(duration.between(next.departureTime, next.arrivalTime).minutes) AS AvgTravelTimeInMinutes
-      ORDER BY AvgTravelTimeInMinutes DESC
+MATCH (s1:Station)-[next:NEXT_STATION]->(s2:Station)
+MATCH (s1)-[conn:CONNECTED]-(s2) // Use CONNECTED to get the distance
+WITH 
+  s1, 
+  s2, 
+  conn.distance AS DistanceInKm, 
+  next.departureTime AS DepartureTime, 
+  next.arrivalTime AS ArrivalTime,
+  next.daysElapsed AS DaysElapsed
+// Calculate adjusted departure and arrival times considering daysElapsed
+WITH 
+  s1, 
+  s2, 
+  DistanceInKm,
+  datetime({year: 2024, month: 1, day: 1, time: DepartureTime}) + duration({days: DaysElapsed}) AS AdjustedDepartureTime,
+  CASE 
+    WHEN ArrivalTime < DepartureTime THEN
+      datetime({year: 2024, month: 1, day: 2, time: ArrivalTime}) + duration({days: DaysElapsed})
+    ELSE
+      datetime({year: 2024, month: 1, day: 1, time: ArrivalTime}) + duration({days: DaysElapsed})
+  END AS AdjustedArrivalTime
+WITH 
+  s1.realName AS StartStation,
+  s2.realName AS EndStation,
+  DistanceInKm,
+  duration.between(AdjustedDepartureTime, AdjustedArrivalTime).minutes AS TravelTimeInMinutes
+// Aggregate to calculate the average travel time
+RETURN 
+  StartStation,
+  EndStation,
+  DistanceInKm,
+  AVG(TravelTimeInMinutes) AS AvgTravelTimeInMinutes
+ORDER BY AvgTravelTimeInMinutes DESC
     `;
 
     const result = await session.run(query);
