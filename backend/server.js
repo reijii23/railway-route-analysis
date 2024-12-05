@@ -4,28 +4,27 @@ const neo4j = require('neo4j-driver');
 const app = express();
 const port = 3001;
 
-// Enable CORS for all routes
 app.use(cors());
 
-// Neo4j Driver Configuration
+// Pengaturan untuk menghubungkan aplikasi dengan Neo4j
 const driver = neo4j.driver('bolt://127.0.0.1:7687', neo4j.auth.basic('neo4j', '12345678'), {
   encrypted: 'ENCRYPTION_OFF'
 });
 
 
-// Helper function to convert Neo4j time object to string
+// Fungsi tambahan untuk mengubah objek waktu dari format Neo4j menjadi String
 function formatTime(timeObj) {
-  if (!timeObj) return ''; // Handle cases where time is undefined
+  if (!timeObj) return ''; //Menangani kasus-kasus dimana waktu adalah "undefined"
   const { hour, minute } = timeObj;
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-// Helper function to convert Neo4j integers to native numbers
+// Fungsi tambahan untuk mengubah Integer Neo4j ke Integer pada umumnya
 function convertNeo4jInt(value) {
   return typeof value === 'object' && value !== null && 'low' in value ? value.low : value;
 }
 
-// Fetch all train routes
+// Rute untuk mengambil data semua kereta 
 app.get('/all-train-routes', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
@@ -51,7 +50,7 @@ LIMIT 50
 
     const formattedData = result.records.map(record => ({
       TrainID: record.get('TrainID'),
-      Type: record.get('Type') || 'Unknown', // Ensure type is returned
+      Type: record.get('Type') || 'Unknown',
       DepartureStation: record.get('DepartureStation'),
       DepartureTime: formatTime(record.get('DepartureTime')),
       ArrivalStation: record.get('ArrivalStation'),
@@ -70,7 +69,7 @@ LIMIT 50
 
 
 
-// Fetch specific train route by ID (TEXT)
+// Rute untuk mengambil data perjalanan sebuah kereta berdasarkan ID
 app.get('/train-route/:trainID', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const { trainID } = req.params;
@@ -124,9 +123,10 @@ ORDER BY r.daysElapsed ASC, r.departureTime ASC
 
 
 
+// Rute untuk mengambil data rute perjalanan semua kereta (ringkasan)
 app.get('/train-summary', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
-  const { type } = req.query; // Get the train type from query parameters
+  const { type } = req.query; 
 
   try {
     const query = `
@@ -224,7 +224,7 @@ ORDER BY Connections DESC
 
     const formattedData = result.records.map(record => ({
       Station: record.get('Station'),
-      Connections: record.get('Connections').low, // Handle Neo4j integer
+      Connections: record.get('Connections').low, 
     }));
 
     res.json(formattedData);
@@ -255,9 +255,9 @@ ORDER BY NumberOfDepartures DESC
 
     const formattedData = result.records.map(record => ({
       Station: record.get('Station'),
-      Starting_From: convertNeo4jInt(record.get('Starting_From')), // Convert to native number
-      Until: convertNeo4jInt(record.get('Until')), // Convert to native number
-      NumberOfDepartures: convertNeo4jInt(record.get('NumberOfDepartures')), // Convert to native number
+      Starting_From: convertNeo4jInt(record.get('Starting_From')),
+      Until: convertNeo4jInt(record.get('Until')),
+      NumberOfDepartures: convertNeo4jInt(record.get('NumberOfDepartures')),
     }));
 
     res.json(formattedData);
@@ -320,10 +320,10 @@ ORDER BY TotalTravelTimeInMinutes DESC
     const formattedData = result.records.map(record => ({
       Train: record.get('Train'),
       FirstStation: record.get('FirstStation'),
-      FirstDepartureTime: formatTime(record.get('FirstDepartureTime')), // Format time here
+      FirstDepartureTime: formatTime(record.get('FirstDepartureTime')),
       FinalStation: record.get('FinalStation') || 'N/A',
-      LastArrivalTime: formatTime(record.get('LastArrivalTime')), // Format time here
-      TotalTravelTimeInMinutes: record.get('TotalTravelTimeInMinutes').low, // Handle Neo4j integer
+      LastArrivalTime: formatTime(record.get('LastArrivalTime')),
+      TotalTravelTimeInMinutes: record.get('TotalTravelTimeInMinutes').low, 
     }));
 
     res.json(formattedData);
@@ -425,7 +425,6 @@ app.get('/Gross-Ton-per-Kilometer-values-for-each-train', async (req, res) => {
 
     const result = await session.run(query);
 
-    // Format the response for the frontend
     const formattedData = result.records.map(record => ({
       TrainID: record.get('TrainID'),
       WeightPerTrip: record.get('WeightPerTrip'),
@@ -492,87 +491,7 @@ app.get('/Waiting-Factor-scores-for-each-train', async (req, res) => {
 
 
 
-
-// Route to fetch graph data (stations, trains, and their relationships) #UNUSED
-app.get('/graph-data', async (req, res) => {
-  const session = driver.session({ database: "neo4j" });
-
-  try {
-    const result = await session.run(`
-MATCH (s1:Station)-[r:CONNECTED]->(s2:Station)
-OPTIONAL MATCH (train:Train)-[t:TRAVELS_TO]->(s1)
-RETURN 
-    ID(s1) AS sourceId, 
-    s1.realName AS sourceName,  
-    labels(s1) AS sourceLabels,
-    
-    ID(s2) AS targetId, 
-    s2.realName AS targetName,  
-    labels(s2) AS targetLabels,
-    
-    r.distance AS distance, 
-    ID(train) AS trainId, 
-    train.TrainID AS trainName, 
-    train.type AS trainType
-    `);
-
-    const nodes = {};
-    const links = [];
-
-    result.records.forEach(record => {
-      const sourceId = record.get('sourceId');
-      const targetId = record.get('targetId');
-      const trainId = record.get('trainId');
-
-      nodes[String(sourceId)] = { 
-        id: String(sourceId), 
-        name: record.get('sourceName'), 
-        labels: record.get('sourceLabels') 
-      };
-      
-      nodes[String(targetId)] = { 
-        id: String(targetId), 
-        name: record.get('targetName'), 
-        labels: record.get('targetLabels') 
-      };
-      
-      if (trainId) {
-        nodes[String(trainId)] = { 
-          id: String(trainId), 
-          name: record.get('trainName'), 
-          labels: ['Train'], 
-          type: record.get('trainType') 
-        };
-        
-        // Add a TRAVELS_TO relationship from Train -> Source Node
-        links.push({ 
-          source: String(trainId), 
-          target: String(sourceId), 
-          relationship: 'TRAVELS_TO' 
-        });
-      }
-      
-      // Add the main link (Source -> Target)
-      links.push({ 
-        source: String(sourceId), 
-        target: String(targetId), 
-        distance: record.get('distance') 
-      });
-      
-    });
-
-    res.json({ nodes: Object.values(nodes), links });
-  } catch (error) {
-    console.error('Error querying Neo4j:', error);
-    res.status(500).send('Internal server error');
-  } finally {
-    await session.close();
-  }
-});
-
-
-
-// Route to fetch graph data for a specific train's route (GRAPH)
+// Rute untuk mengambil data graf mengenai perjalanan sebuah kereta
 app.get('/train-graph/:trainID', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const trainID = req.params.trainID;
@@ -597,11 +516,9 @@ app.get('/train-graph/:trainID', async (req, res) => {
       { trainID }
     );
 
-    // Initialize containers
     const nodesMap = new Map();
     const links = [];
 
-    // Add Train node first
     let trainNode;
     result.records.forEach((record) => {
       if (!trainNode) {
@@ -614,7 +531,6 @@ app.get('/train-graph/:trainID', async (req, res) => {
         nodesMap.set(trainNode.id, trainNode);
       }
 
-      // Add Station nodes and links in order
       const stationId = String(record.get("stationId"));
       const stationName = record.get("stationName");
       const nextStationId = record.get("nextStationId")
@@ -638,7 +554,6 @@ app.get('/train-graph/:trainID', async (req, res) => {
         });
       }
 
-      // Add links
       if (!links.some((link) => link.source === trainNode.id && link.target === stationId)) {
         links.push({
           source: trainNode.id,
@@ -667,11 +582,12 @@ app.get('/train-graph/:trainID', async (req, res) => {
 });
 
 
-// Province Graph Route
+
+// Rute untuk menampilkan visualisasi graf pada tingkat Provinsi
 app.get('/province-graph', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
 
-  const { provinceName } = req.query; // Accept province name as a query parameter
+  const { provinceName } = req.query; 
 
   try {
     const query = `
@@ -693,7 +609,6 @@ app.get('/province-graph', async (req, res) => {
 
     const result = await session.run(query, { provinceName });
 
-    // Format the response for the frontend
     const formattedData = result.records.map(record => ({
       Province: record.get('Province'),
       City: record.get('City'),
@@ -717,7 +632,7 @@ app.get('/province-graph', async (req, res) => {
 
 
 
-// Route to fetch all stations in the system.
+// Rute untuk mengambil nama semua stasiun dalam Neo4j
 app.get('/stations', async (req, res) => {
   const session = driver.session();
   try {
@@ -738,36 +653,7 @@ app.get('/stations', async (req, res) => {
 
 
 
-// Route to get train routes by stations
-app.get('/routes-by-stations', async (req, res) => {
-  const { from, to } = req.query;
-  const session = driver.session();
-  try {
-    const result = await session.run(`
-      MATCH p=(start:Station {realName: $from})-[:NEXT_STATION*]->(end:Station {realName: $to})
-      WITH p, nodes(p) AS stations, relationships(p) AS links
-      RETURN 
-        [station IN stations | station.realName] AS stationNames,
-        [link IN links | properties(link)] AS linkProperties
-    `, { from, to });
-
-    const routes = result.records.map(record => ({
-      stationNames: record.get('stationNames'),
-      linkProperties: record.get('linkProperties'),
-    }));
-
-    res.json(routes);
-  } catch (error) {
-    console.error('Error fetching routes by stations:', error);
-    res.status(500).send('Internal Server Error');
-  } finally {
-    await session.close();
-  }
-});
-
-
-
-// Route: Fetch neighbors of a station and its degree
+// Rute untuk mengambil kederajatan sebuah stasiun dan tetangganya
 app.get('/station-degree', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const { stationRealName } = req.query;
@@ -813,7 +699,7 @@ app.get('/station-degree', async (req, res) => {
 
 
 
-// Route: To search for routes in between
+// Rute untuk mencari rute-rute perjalanan antar stasiun
 app.get('/search-trains-between', async (req, res) => {
   const session = driver.session({ database: "neo4j" });
   const { from, to } = req.query;
