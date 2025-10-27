@@ -1,12 +1,12 @@
 # 🚆 Railway Route Analysis
 
-A government funded project, aimed at optimizing the railway transportation system in Indonesia using data-driven insights.
-This project explores and delivers actionable insights for further use in improving the railway transportation system.
+This project was developed as part of a government-funded research collaboration aimed at improving Indonesia’s national railway system. By leveraging graph databases, the project visualizes the railway network as a graph, making node traversals more defined and easier to track. It delivers actionable insights through in-depth analyses powered by streamlined, cost-efficient queries that can quickly run specific analyses at the user’s request. Additionally, the system generates interactive graph visualizations to provide a clearer picture of how the network is interconnected, offering data-backed insights to support future transportation planning.
+
 ---
 
 ## 🧭 Project Overview
-This project aims to analyze, visualize, and generate actionable insights for general information as well as data-driven improvements later on in the future.  
-Originally inspired by real-world transportation systems, it utilizes **graph theory**, **data visualization**, and **performance-optimized querying** (e.g., Neo4j) to track train traversal on a graph database and detect potential bottlenecks.
+This project analyzes and visualizes railway route data to uncover operational inefficiencies and support data-driven improvements.  
+It uses **graph theory**, **data visualization**, and **performance-optimized querying** (via Neo4j) to simulate train traversal and detect potential congestion across the network.
 
 ---
 
@@ -20,7 +20,8 @@ Originally inspired by real-world transportation systems, it utilizes **graph th
 
 ## 🧱 Tech Stack
 - **Language:** Cypher Query Language  
-- **Database:** Neo4j (Graph Database)  
+- **Database:** Neo4j (Graph Database)
+- **Dashboard:** React.js (Efficient component swapping)
 - **Visualization:** react-force-graph  
 - **Version Control:** Git & GitHub
 
